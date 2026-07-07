@@ -51,28 +51,27 @@ La passerelle forwarde le `/e/` **opaque** ; MeshForge déchiffre via
 `MESHTASTIC_CHANNEL_KEYS` (le node n'émet que du `/e/` chiffré en Client Proxy, pas de
 `/json/`).
 
-### Résilience (BLE instable)
+### Résilience (BLE instable) — isolation de process
 
-Le BLE décroche — souvent **silencieusement**. La passerelle traite ça comme la norme :
+Le BLE décroche souvent, et **meshtastic gèle sur lien mort** dans des appels sans timeout
+(`_sendDisconnect`, `disconnect()`…), **impossibles à interrompre en thread** (confirmé
+py-spy en prod). La passerelle est donc bâtie en **isolation de process** :
 
-0. **Anti-gel** (`meshtastic_patch`) : sur lien mort, `meshtastic.close()` gelait en
-   écrivant un paquet « disconnect » au radio (`write_gatt_char` sans timeout — cause
-   confirmée par py-spy). Comme la passerelle ne fait que *recevoir*, on **neutralise ce
-   `_sendDisconnect`** → la fermeture n'accroche plus, donc la reconnexion in-process
-   ci-dessous **va au bout** (au lieu de dépendre d'un restart systemd).
-1. **Coupure silencieuse détectée** : à chaque poll, une **sonde de vivacité** lit l'état
-   BlueZ (`is_connected` via bleak) — le seul signal fiable quand meshtastic n'émet ni
-   exception ni `connection.lost`. Lien mort → session fermée → reconnexion.
-2. **Coupure signalée** : abonnement à `meshtastic.connection.lost` (redondant avec 1).
-3. **Échec de (re)connexion** node/broker : même boucle, **backoff exponentiel plafonné**
-   (`MBG_RECONNECT_DELAY` → `MBG_MAX_RECONNECT_DELAY`), remis à zéro après une session
-   productive. Chaque transition est **loguée** — fini le silence.
-4. **Gel total du process** : `Type=notify` + `WatchdogSec` → l'app pinge systemd à chaque
-   cycle sain ; sans ping, systemd relance (avec `Restart=always`).
+- **Worker jetable** : toute la pile BLE tourne dans un **sous-processus**. Sur décrochage
+  (sonde de vivacité `is_connected` / `connection.lost`), le worker fait `os._exit` — il
+  saute le teardown qui gèle, l'OS récupère tout (threads, event loops, fd).
+- **Superviseur** (process principal) : ne touche **jamais** au BLE → ne fige jamais. Il
+  surveille le **heartbeat** du worker : worker sorti → respawn ; worker **figé** (heartbeat
+  stagnant au-delà d'`alive_timeout`, ou de `connect_grace` pendant la connexion) →
+  **SIGKILL** → respawn. Backoff exponentiel plafonné (`MBG_RECONNECT_DELAY` →
+  `MBG_MAX_RECONNECT_DELAY`), remis à zéro après un worker qui s'est connecté.
+- **Watchdog systemd** (`Type=notify` / `WatchdogSec`) : le superviseur pinge en continu ;
+  systemd ne relance le service **que si le superviseur lui-même meurt** — vrai dernier filet.
 
-> Signature terrain du « silent death » (gateway `active` mais lien mort) : `bluetoothctl
-> info <MAC>` → `Connected: no` + silence du journal. C'est exactement ce que la sonde (1)
-> et le watchdog (4) éliminent.
+> Pourquoi pas un simple timeout / monkeypatch ? Chaque point de gel neutralisé en révèle
+> un autre (whack-a-mole), et borner `async_await` **fuit un thread daemon + event loop +
+> fd par décrochage** (fatal sur armv7 32-bit). On ne peut pas tuer un thread bloqué dans
+> un appel C — mais on peut **SIGKILL un process**. D'où l'isolation.
 
 ### Tests
 

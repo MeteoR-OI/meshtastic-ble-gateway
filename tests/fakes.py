@@ -79,3 +79,89 @@ class FakeNodeLink:
 
     def is_alive(self):
         return self.alive
+
+
+class _DummyLock:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+class FakeCounter:
+    """Imite multiprocessing.Value (get_lock + value)."""
+
+    def __init__(self):
+        self.value = 0
+
+    def get_lock(self):
+        return _DummyLock()
+
+
+class FakeWorkerHandle:
+    """Handle worker pilotable pour tester le superviseur (aucun vrai process)."""
+
+    def __init__(self, beat_value=0, alive=True):
+        self.beat_value = beat_value
+        self.alive = alive
+        self.killed = False
+        self.joined = False
+
+    def beats(self):
+        return self.beat_value
+
+    def is_alive(self):
+        return self.alive
+
+    def kill(self):
+        self.killed = True
+        self.alive = False
+
+    def join(self, timeout=None):
+        self.joined = True
+
+
+class FakeProcess:
+    """Imite multiprocessing.Process pour tester process_backend sans fork."""
+
+    def __init__(self, target=None, args=(), name=None, daemon=None):
+        self.target = target
+        self.args = args
+        self.name = name
+        self.daemon = daemon
+        self.started = False
+        self.killed = False
+        self.joined_with = "unset"
+        self.exitcode = 0
+        self._alive = False
+
+    def start(self):
+        self.started = True
+        self._alive = True
+
+    def is_alive(self):
+        return self._alive
+
+    def kill(self):
+        self.killed = True
+        self._alive = False
+
+    def join(self, timeout=None):
+        self.joined_with = timeout
+
+
+class FakeContext:
+    """Imite un contexte multiprocessing (Value + Process)."""
+
+    def __init__(self):
+        self.last_process = None
+
+    def Value(self, typecode, initial):
+        c = FakeCounter()
+        c.value = initial
+        return c
+
+    def Process(self, target=None, args=(), name=None, daemon=None):
+        self.last_process = FakeProcess(target=target, args=args, name=name, daemon=daemon)
+        return self.last_process

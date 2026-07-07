@@ -5,14 +5,13 @@ from __future__ import annotations
 
 import argparse
 import logging
+import multiprocessing
 import signal
 from typing import Optional, Sequence
 
 from .config import Config
-from .meshtastic_patch import apply_meshtastic_patches
-from .mqtt_publisher import PahoPublisher
-from .node import MeshtasticNodeLink
-from .runner import Gateway
+from .process_backend import spawn_worker
+from .supervisor import Supervisor
 
 log = logging.getLogger("mbg")
 
@@ -38,7 +37,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
     )
-    apply_meshtastic_patches()  # anti-gel BLE, avant toute connexion
     config = Config(
         ble_address=args.ble,
         broker_host=args.broker,
@@ -46,18 +44,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         broker_username=args.username,
         broker_password=args.password,
         reconnect_delay=env_config.reconnect_delay,
+        max_reconnect_delay=env_config.max_reconnect_delay,
         poll_interval=env_config.poll_interval,
+        supervisor_tick=env_config.supervisor_tick,
+        connect_grace=env_config.connect_grace,
+        alive_timeout=env_config.alive_timeout,
     )
 
-    def publisher_factory():
-        return PahoPublisher(
-            config.broker_host, config.broker_port, config.broker_username, config.broker_password
-        )
-
-    def nodelink_factory(address, on_proxy, on_lost):
-        return MeshtasticNodeLink(address, on_proxy, on_lost)
-
-    gateway = Gateway(config, publisher_factory, nodelink_factory)
+    # Le BLE tourne dans un sous-processus jetable ; le superviseur (ce process) ne
+    # touche jamais au BLE, donc ne fige jamais.
+    ctx = multiprocessing.get_context("fork")
+    supervisor = Supervisor(config, lambda: spawn_worker(config, ctx))
 
     stop = {"flag": False}
 
@@ -68,12 +65,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     signal.signal(signal.SIGTERM, _stop)
 
     log.info(
-        "démarrage passerelle : node=%s broker=%s:%s",
+        "démarrage superviseur : node=%s broker=%s:%s",
         config.ble_address,
         config.broker_host,
         config.broker_port,
     )
-    gateway.run(lambda: not stop["flag"])
+    supervisor.run(lambda: not stop["flag"])
     return 0
 
 

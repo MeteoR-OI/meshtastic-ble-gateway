@@ -19,9 +19,12 @@ class Config:
     broker_port: int = 1883
     broker_username: Optional[str] = None
     broker_password: Optional[str] = None
-    reconnect_delay: float = 5.0  # délai initial entre deux tentatives (backoff)
+    reconnect_delay: float = 5.0  # délai initial de respawn du worker (backoff)
     max_reconnect_delay: float = 30.0  # plafond du backoff exponentiel
-    poll_interval: float = 0.5  # granularité + cadence de la sonde de vivacité
+    poll_interval: float = 0.5  # granularité + cadence sonde/heartbeat du worker
+    supervisor_tick: float = 1.0  # cadence de surveillance du superviseur
+    connect_grace: float = 45.0  # délai toléré sans heartbeat pendant la connexion BLE
+    alive_timeout: float = 15.0  # gap max entre heartbeats une fois le worker connecté
 
     @classmethod
     def from_env(cls, env: Optional[Mapping[str, str]] = None) -> "Config":
@@ -36,4 +39,7 @@ class Config:
             reconnect_delay=float(src.get("MBG_RECONNECT_DELAY", "5")),
             max_reconnect_delay=float(src.get("MBG_MAX_RECONNECT_DELAY", "30")),
             poll_interval=float(src.get("MBG_POLL_INTERVAL", "0.5")),
+            supervisor_tick=float(src.get("MBG_SUPERVISOR_TICK", "1")),
+            connect_grace=float(src.get("MBG_CONNECT_GRACE", "45")),
+            alive_timeout=float(src.get("MBG_ALIVE_TIMEOUT", "15")),
         )

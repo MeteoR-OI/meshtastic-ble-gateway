@@ -1,0 +1,156 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+from fakes import FakeWorkerHandle
+from mbg.config import Config
+from mbg.supervisor import Supervisor
+
+
+def seq(values):
+    it = iter(values)
+    return lambda: next(it)
+
+
+class Clock:
+    def __init__(self):
+        self.t = 0.0
+
+    def __call__(self):
+        return self.t
+
+
+def test_no_spawn_when_stopped_immediately():
+    spawned = []
+    notes = []
+
+    def spawn():
+        spawned.append(1)
+        return FakeWorkerHandle()
+
+    Supervisor(Config(), spawn, sleep=lambda s: None, clock=lambda: 0.0, notify=notes.append).run(
+        lambda: False
+    )
+    assert spawned == []
+    assert notes == ["READY=1"]
+
+
+def test_productive_exit_then_respawn_at_base_delay():
+    workers = []
+    slept = []
+    notes = []
+    clock = Clock()
+    step = {"n": 0}
+
+    def spawn():
+        w = FakeWorkerHandle()
+        workers.append(w)
+        return w
+
+    def sleep_(s):
+        slept.append(s)
+        clock.t += s
+        step["n"] += 1
+        if step["n"] == 1:
+            workers[-1].beat_value = 5  # connecté + a relayé
+        elif step["n"] == 2:
+            workers[-1].alive = False  # sorti seul (os._exit sur drop)
+
+    Supervisor(
+        Config(supervisor_tick=1, reconnect_delay=5, max_reconnect_delay=30),
+        spawn, sleep=sleep_, clock=clock, notify=notes.append,
+    ).run(seq([True, True, True, True, False]))
+
+    assert len(workers) == 1
+    assert workers[0].killed is False  # sorti seul, pas tué
+    assert slept == [1, 1, 5]  # 2 ticks de surveillance + respawn au délai de base
+    assert "READY=1" in notes and "WATCHDOG=1" in notes
+
+
+def test_connect_failure_grows_backoff():
+    workers = []
+    slept = []
+    step = {"n": 0}
+
+    def spawn():
+        w = FakeWorkerHandle()
+        workers.append(w)
+        return w
+
+    def sleep_(s):
+        slept.append(s)
+        step["n"] += 1
+        if step["n"] in (1, 3):
+            workers[-1].alive = False  # sort tout de suite, beats=0 (connexion échouée)
+
+    Supervisor(
+        Config(supervisor_tick=1, reconnect_delay=5, max_reconnect_delay=30),
+        spawn, sleep=sleep_, clock=Clock(), notify=lambda _: None,
+    ).run(seq([True, True, True, True, True, True, False]))
+
+    assert slept == [1, 5, 1, 10]  # backoff exponentiel : 5 puis 10 (non productif)
+
+
+def test_frozen_after_connect_is_killed():
+    workers = []
+    clock = Clock()
+    step = {"n": 0}
+
+    def spawn():
+        w = FakeWorkerHandle()
+        workers.append(w)
+        return w
+
+    def sleep_(s):
+        clock.t += s
+        step["n"] += 1
+        if step["n"] == 1:
+            workers[-1].beat_value = 5  # connecté... puis plus aucun heartbeat (gel)
+
+    Supervisor(
+        Config(supervisor_tick=1, alive_timeout=3, reconnect_delay=5),
+        spawn, sleep=sleep_, clock=clock, notify=lambda _: None,
+    ).run(seq([True, True, True, True, True, True, True, False]))
+
+    assert workers[0].killed is True
+    assert workers[0].joined is True
+
+
+def test_frozen_during_connect_is_killed():
+    workers = []
+    clock = Clock()
+
+    def spawn():
+        w = FakeWorkerHandle()  # ne bat jamais (beats=0), reste "alive" (bloqué en connexion)
+        workers.append(w)
+        return w
+
+    def sleep_(s):
+        clock.t += s
+
+    Supervisor(
+        Config(supervisor_tick=1, connect_grace=2, reconnect_delay=5),
+        spawn, sleep=sleep_, clock=clock, notify=lambda _: None,
+    ).run(seq([True, True, True, True, True, False]))
+
+    assert workers[0].killed is True  # tué au bout de connect_grace
+
+
+def test_stop_kills_running_worker():
+    workers = []
+    clock = Clock()
+    step = {"n": 0}
+
+    def spawn():
+        w = FakeWorkerHandle()
+        workers.append(w)
+        return w
+
+    def sleep_(s):
+        clock.t += s
+        step["n"] += 1
+        if step["n"] == 1:
+            workers[-1].beat_value = 3  # bat normalement, puis on demande l'arrêt
+
+    Supervisor(
+        Config(supervisor_tick=1), spawn, sleep=sleep_, clock=clock, notify=lambda _: None,
+    ).run(seq([True, True, False, False]))
+
+    assert workers[0].killed is True  # _stop_worker tue le worker encore vivant

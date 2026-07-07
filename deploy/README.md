@@ -74,10 +74,14 @@ journalctl -u mbg -f
 | `MBG_BROKER_HOST` | `localhost` | hôte du broker MQTT |
 | `MBG_BROKER_PORT` | `1883` | port MQTT |
 | `MBG_BROKER_USERNAME` / `MBG_BROKER_PASSWORD` | – | auth broker (optionnel) |
-| `MBG_RECONNECT_DELAY` | `5` | délai initial du backoff de reconnexion (s) |
+| `MBG_RECONNECT_DELAY` | `5` | délai initial du backoff de respawn du worker (s) |
 | `MBG_MAX_RECONNECT_DELAY` | `30` | plafond du backoff exponentiel (s) |
-| `MBG_POLL_INTERVAL` | `0.5` | granularité + cadence de la sonde de vivacité (s) |
+| `MBG_POLL_INTERVAL` | `0.5` | cadence sonde/heartbeat du worker (s) |
+| `MBG_SUPERVISOR_TICK` | `1` | cadence de surveillance du superviseur (s) |
+| `MBG_CONNECT_GRACE` | `45` | délai toléré sans heartbeat pendant la connexion BLE (s) |
+| `MBG_ALIVE_TIMEOUT` | `15` | gap max entre heartbeats une fois le worker connecté (s) |
 
-> **Watchdog** : l'unit est en `Type=notify` + `WatchdogSec=120`. L'app pings systemd à
-> chaque cycle sain ; en cas de gel total, systemd relance. C'est le filet ultime en plus
-> de la reconnexion interne (détection de coupure silencieuse + backoff).
+> **Archi** : le service lance un **superviseur** qui fait tourner le BLE dans un
+> **worker (sous-processus) jetable**. Superviseur figé impossible (aucun BLE) → il nourrit
+> `WatchdogSec` en continu ; systemd ne relance que si le superviseur meurt. Voir la section
+> Résilience du README racine.

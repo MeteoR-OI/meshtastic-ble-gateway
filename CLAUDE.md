@@ -14,30 +14,42 @@ Pont **BLE → MQTT** pour faire remonter un node Meshtastic **BT-only** dans
 - API meshtastic-python : uplink = pubsub `meshtastic.mqttclientproxymessage`
   `(proxymessage, interface)` → republier `proxymessage.topic`/`.data` ; perte de lien =
   pubsub `meshtastic.connection.lost`.
-- **Le BLE décroche souvent EN SILENCE** (ni exception ni `connection.lost`). Le seul
-  signal fiable = l'état BlueZ via `iface.client.bleak_client.is_connected` (bleak) — d'où
-  la **sonde de vivacité** (`node.default_liveness`) sondée à chaque poll par le runner.
-  Compléter par un watchdog systemd (`Type=notify`/`WatchdogSec`, module `systemd_notify`).
-- **Anti-gel `meshtastic_patch` (crucial)** : `MeshInterface.close()` gèle sur lien mort en
-  écrivant un paquet disconnect (`_sendDisconnect`→`write_gatt_char` sans timeout ; cause
-  confirmée py-spy, 72% des dumps). On le **neutralise** (`apply_meshtastic_patches()` appelé
-  dans `__main__`) — sans lui, la reconnexion in-process ne va jamais au bout. Patch défensif
-  (idempotent, no-op si l'API meshtastic change). NB : la passerelle est receive-only, donc
-  ce paquet disconnect ne sert à rien.
+- **meshtastic GÈLE sur lien mort, de façon non-tuable** : appels BLE sans timeout
+  (`_sendDisconnect`, puis `disconnect()` via `async_await`→`future.result()` sans timeout ;
+  confirmé py-spy). Impossible à récupérer en thread (on ne tue pas un thread bloqué en C) ;
+  borner `async_await` **fuit un thread daemon + event loop + fd par décrochage** (fatal
+  armv7 32-bit). ⇒ **Isolation de process** (voir Architecture) : le BLE tourne dans un
+  worker jetable qu'on **SIGKILL**. Ne PAS re-tenter un fix in-process (whack-a-mole prouvé).
+- Sonde de vivacité (`node.default_liveness` via `is_connected` BlueZ) + `connection.lost`
+  servent au worker à détecter le drop et sortir vite (`os._exit`) ; c'est le superviseur
+  (parent) qui respawn.
 - BLE : **1 seul client connecté à la fois**. Cible = MAC sur Linux/BlueZ, nom/UUID sur macOS.
 
-## Architecture (`src/mbg/`)
+## Architecture (`src/mbg/`) — superviseur / worker
 
-Tout le I/O externe est **injecté derrière des fabriques/paramètres** → testable sans matériel.
+Tout le I/O externe est **injecté derrière des fabriques/paramètres** → testable sans
+matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais de BLE) et un
+**worker jetable** (fait le BLE, SIGKILLable).
 
-- `config.py` — `Config` (dataclass) + `from_env()` (variables `MBG_*`).
+- `config.py` — `Config` (dataclass) + `from_env()` (`MBG_*`). Champs de tuning :
+  `supervisor_tick`, `connect_grace`, `alive_timeout`, `reconnect_delay`/`max_reconnect_delay`.
 - `proxy.py` — `Proxy.on_proxy_message` : republie au broker, ne crashe jamais.
 - `mqtt_publisher.py` — `PahoPublisher` (adaptateur paho, `client_factory` injectable).
-- `node.py` — `MeshtasticNodeLink` : connexion BLE + abonnements pubsub (proxy + lost),
-  `interface_factory`/`subscribe`/`unsubscribe` injectables.
-- `runner.py` — `Gateway` : boucle de session + reconnexion (backoff `reconnect_delay`) ;
-  `ConnectionLost` (armé par `connection.lost`) relance la session.
-- `__main__.py` — CLI. **L'ENV est la base de la config, la CLI override.**
+- `node.py` — `MeshtasticNodeLink` : connexion BLE + pubsub (proxy + lost) + sonde
+  `is_alive()`. Tout injectable.
+- `session.py` — `run_one_session(...)` : UNE session (broker + BLE + boucle poll + sonde),
+  émet un `heartbeat()` à chaque poll, rend la main au décrochage. **Ne ferme pas** (le
+  worker `os._exit`). Réutilise proxy/publisher/node.
+- `worker.py` — `_worker_body` (logique testable) + `run_worker` (frontière OS : `os._exit`,
+  pragma) : le sous-processus. Sort en `os._exit` pour **ne jamais** appeler le `close()` qui gèle.
+- `process_backend.py` — `WorkerHandle` (beats/is_alive/kill/join) + `spawn_worker(config, ctx)`
+  (fork réel via `multiprocessing`). Seam injectable.
+- `supervisor.py` — `Supervisor` : spawn worker → surveille heartbeat (phases connect/alive)
+  → respawn si sorti / **SIGKILL** si figé → backoff plafonné + reset si connecté. Nourrit
+  le watchdog systemd (`sd_notify`). Testé avec un faux spawn (aucun vrai process).
+- `systemd_notify.py` — `sd_notify` (watchdog, sans dépendance).
+- `__main__.py` — CLI. **L'ENV est la base de la config, la CLI override.** Câble le
+  superviseur avec `spawn_worker` + `get_context("fork")`.
 
 ## Config : ENV = base, CLI = override
 

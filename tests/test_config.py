@@ -10,6 +10,9 @@ ENV_KEYS = [
     "MBG_RECONNECT_DELAY",
     "MBG_MAX_RECONNECT_DELAY",
     "MBG_POLL_INTERVAL",
+    "MBG_SUPERVISOR_TICK",
+    "MBG_CONNECT_GRACE",
+    "MBG_ALIVE_TIMEOUT",
 ]
 
 
@@ -23,6 +26,9 @@ def test_defaults_from_empty_env():
     assert c.reconnect_delay == 5.0
     assert c.max_reconnect_delay == 30.0
     assert c.poll_interval == 0.5
+    assert c.supervisor_tick == 1.0
+    assert c.connect_grace == 45.0
+    assert c.alive_timeout == 15.0
 
 
 def test_full_env_override():
@@ -36,6 +42,9 @@ def test_full_env_override():
             "MBG_RECONNECT_DELAY": "10",
             "MBG_MAX_RECONNECT_DELAY": "45",
             "MBG_POLL_INTERVAL": "1.5",
+            "MBG_SUPERVISOR_TICK": "2",
+            "MBG_CONNECT_GRACE": "60",
+            "MBG_ALIVE_TIMEOUT": "12",
         }
     )
     assert c.ble_address == "AA:BB:CC"
@@ -46,6 +55,9 @@ def test_full_env_override():
     assert c.reconnect_delay == 10.0
     assert c.max_reconnect_delay == 45.0
     assert c.poll_interval == 1.5
+    assert c.supervisor_tick == 2.0
+    assert c.connect_grace == 60.0
+    assert c.alive_timeout == 12.0
 
 
 def test_empty_credentials_become_none():
