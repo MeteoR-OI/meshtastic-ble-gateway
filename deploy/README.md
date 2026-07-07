@@ -74,5 +74,10 @@ journalctl -u mbg -f
 | `MBG_BROKER_HOST` | `localhost` | hôte du broker MQTT |
 | `MBG_BROKER_PORT` | `1883` | port MQTT |
 | `MBG_BROKER_USERNAME` / `MBG_BROKER_PASSWORD` | – | auth broker (optionnel) |
-| `MBG_RECONNECT_DELAY` | `5` | délai (s) entre tentatives de session |
-| `MBG_POLL_INTERVAL` | `0.5` | granularité de la boucle |
+| `MBG_RECONNECT_DELAY` | `5` | délai initial du backoff de reconnexion (s) |
+| `MBG_MAX_RECONNECT_DELAY` | `30` | plafond du backoff exponentiel (s) |
+| `MBG_POLL_INTERVAL` | `0.5` | granularité + cadence de la sonde de vivacité (s) |
+
+> **Watchdog** : l'unit est en `Type=notify` + `WatchdogSec=120`. L'app pings systemd à
+> chaque cycle sain ; en cas de gel total, systemd relance. C'est le filet ultime en plus
+> de la reconnexion interne (détection de coupure silencieuse + backoff).

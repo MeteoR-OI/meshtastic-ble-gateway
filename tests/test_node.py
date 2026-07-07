@@ -1,4 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
+from types import SimpleNamespace
+
 import meshtastic.ble_interface as ble_mod
 import pubsub
 
@@ -8,6 +10,7 @@ from mbg.node import (
     PROXY_TOPIC,
     MeshtasticNodeLink,
     default_interface_factory,
+    default_liveness,
     default_subscribe,
     default_unsubscribe,
 )
@@ -114,6 +117,40 @@ def test_handler_lost_without_callback_is_noop():
     )
     link.open()
     captured[CONNECTION_LOST_TOPIC](interface="iface")  # ne doit pas lever
+
+
+def test_is_alive_false_when_not_open():
+    link = MeshtasticNodeLink("addr", lambda m: None)
+    assert link.is_alive() is False  # _iface None
+
+
+def test_is_alive_delegates_to_liveness():
+    link = MeshtasticNodeLink(
+        "addr",
+        lambda m: None,
+        interface_factory=FakeIface,
+        subscribe=lambda h, t: None,
+        unsubscribe=lambda h, t: None,
+        liveness=lambda iface: False,
+    )
+    link.open()
+    assert link.is_alive() is False
+
+
+def _iface_with_connected(value):
+    return SimpleNamespace(client=SimpleNamespace(bleak_client=SimpleNamespace(is_connected=value)))
+
+
+def test_default_liveness_connected():
+    assert default_liveness(_iface_with_connected(True)) is True
+
+
+def test_default_liveness_disconnected():
+    assert default_liveness(_iface_with_connected(False)) is False
+
+
+def test_default_liveness_fail_open_when_introspection_missing():
+    assert default_liveness(SimpleNamespace()) is True  # pas de .client -> fail-open
 
 
 def test_default_interface_factory(monkeypatch):

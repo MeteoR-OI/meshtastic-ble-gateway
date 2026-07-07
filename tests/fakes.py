@@ -69,9 +69,13 @@ class FakeNodeLink:
         self.on_proxy = on_proxy
         self.opened = False
         self.closed = False
+        self.alive = True  # basculer à False pour simuler un décrochage BLE
 
     def open(self):
         self.opened = True
 
     def close(self):
         self.closed = True
+
+    def is_alive(self):
+        return self.alive

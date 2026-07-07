@@ -14,6 +14,10 @@ Pont **BLE → MQTT** pour faire remonter un node Meshtastic **BT-only** dans
 - API meshtastic-python : uplink = pubsub `meshtastic.mqttclientproxymessage`
   `(proxymessage, interface)` → republier `proxymessage.topic`/`.data` ; perte de lien =
   pubsub `meshtastic.connection.lost`.
+- **Le BLE décroche souvent EN SILENCE** (ni exception ni `connection.lost`). Le seul
+  signal fiable = l'état BlueZ via `iface.client.bleak_client.is_connected` (bleak) — d'où
+  la **sonde de vivacité** (`node.default_liveness`) sondée à chaque poll par le runner.
+  Compléter par un watchdog systemd (`Type=notify`/`WatchdogSec`, module `systemd_notify`).
 - BLE : **1 seul client connecté à la fois**. Cible = MAC sur Linux/BlueZ, nom/UUID sur macOS.
 
 ## Architecture (`src/mbg/`)

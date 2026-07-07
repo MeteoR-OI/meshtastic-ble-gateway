@@ -7,7 +7,12 @@ After=bluetooth.target network-online.target
 Wants=bluetooth.target network-online.target
 
 [Service]
-Type=simple
+# Type=notify + WatchdogSec : l'app envoie WATCHDOG=1 à chaque cycle sain ; si
+# systemd cesse de les recevoir (gel total), il relance le service. Filet ultime
+# en plus de la reconnexion interne (sonde de vivacité + backoff).
+Type=notify
+NotifyAccess=main
+WatchdogSec=120
 # Utilisateur dédié, membre du groupe `bluetooth` pour accéder à hci0.
 User=mbg
 SupplementaryGroups=bluetooth
@@ -16,6 +21,9 @@ WorkingDirectory=/opt/meshtastic-ble-gateway
 Environment=MBG_BLE_ADDRESS=E6:E3:53:4B:BE:A5
 Environment=MBG_BROKER_HOST=mqtt-mt.meteor-oi.re
 Environment=MBG_BROKER_PORT=1883
+# Backoff de reconnexion : initial / plafond (optionnel, défauts 5 / 30 s).
+# Environment=MBG_RECONNECT_DELAY=5
+# Environment=MBG_MAX_RECONNECT_DELAY=30
 ExecStart=/opt/meshtastic-ble-gateway/.venv/bin/python -m mbg
 # BLE 24/7 peu fiable : on relance toujours (le code reconnecte déjà en interne).
 Restart=always

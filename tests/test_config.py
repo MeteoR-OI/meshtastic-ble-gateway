@@ -8,6 +8,7 @@ ENV_KEYS = [
     "MBG_BROKER_USERNAME",
     "MBG_BROKER_PASSWORD",
     "MBG_RECONNECT_DELAY",
+    "MBG_MAX_RECONNECT_DELAY",
     "MBG_POLL_INTERVAL",
 ]
 
@@ -20,6 +21,7 @@ def test_defaults_from_empty_env():
     assert c.broker_username is None
     assert c.broker_password is None
     assert c.reconnect_delay == 5.0
+    assert c.max_reconnect_delay == 30.0
     assert c.poll_interval == 0.5
 
 
@@ -32,6 +34,7 @@ def test_full_env_override():
             "MBG_BROKER_USERNAME": "u",
             "MBG_BROKER_PASSWORD": "p",
             "MBG_RECONNECT_DELAY": "10",
+            "MBG_MAX_RECONNECT_DELAY": "45",
             "MBG_POLL_INTERVAL": "1.5",
         }
     )
@@ -41,6 +44,7 @@ def test_full_env_override():
     assert c.broker_username == "u"
     assert c.broker_password == "p"
     assert c.reconnect_delay == 10.0
+    assert c.max_reconnect_delay == 45.0
     assert c.poll_interval == 1.5
 
 

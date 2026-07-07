@@ -28,6 +28,21 @@ def default_interface_factory(address: str):
     return BLEInterface(address)
 
 
+def default_liveness(iface: object) -> bool:
+    """Vrai si le lien BLE est encore up, d'après l'état D-Bus BlueZ (via bleak).
+
+    C'est LE signal qui détecte la coupure silencieuse : meshtastic ne lève ni
+    exception ni `connection.lost`, mais BlueZ, lui, sait que `Connected: no`.
+    Fail-open (True) si l'introspection échoue, pour ne jamais reconnecter à tort.
+    """
+    client = getattr(iface, "client", None)
+    bleak_client = getattr(client, "bleak_client", None)
+    connected = getattr(bleak_client, "is_connected", None)
+    if connected is None:
+        return True
+    return bool(connected)
+
+
 def default_subscribe(handler: Callable, topic: str) -> None:
     from pubsub import pub
 
@@ -52,6 +67,7 @@ class MeshtasticNodeLink:
         interface_factory: Callable[[str], object] = default_interface_factory,
         subscribe: Callable[[Callable, str], None] = default_subscribe,
         unsubscribe: Callable[[Callable, str], None] = default_unsubscribe,
+        liveness: Callable[[object], bool] = default_liveness,
     ) -> None:
         self._address = address
         self._on_proxy = on_proxy
@@ -59,6 +75,7 @@ class MeshtasticNodeLink:
         self._interface_factory = interface_factory
         self._subscribe = subscribe
         self._unsubscribe = unsubscribe
+        self._liveness = liveness
         self._iface = None
 
     def _handler(self, proxymessage=None, interface=None) -> None:
@@ -70,6 +87,12 @@ class MeshtasticNodeLink:
         log.warning("lien BLE perdu (node %s)", self._address)
         if self._on_lost is not None:
             self._on_lost()
+
+    def is_alive(self) -> bool:
+        """Sonde de vivacité du lien BLE (sans I/O). False si non ouvert ou lien mort."""
+        if self._iface is None:
+            return False
+        return self._liveness(self._iface)
 
     def open(self) -> None:
         self._subscribe(self._handler, PROXY_TOPIC)

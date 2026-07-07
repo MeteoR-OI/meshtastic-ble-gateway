@@ -19,8 +19,9 @@ class Config:
     broker_port: int = 1883
     broker_username: Optional[str] = None
     broker_password: Optional[str] = None
-    reconnect_delay: float = 5.0  # secondes entre deux tentatives de session
-    poll_interval: float = 0.5  # granularité de la boucle de session
+    reconnect_delay: float = 5.0  # délai initial entre deux tentatives (backoff)
+    max_reconnect_delay: float = 30.0  # plafond du backoff exponentiel
+    poll_interval: float = 0.5  # granularité + cadence de la sonde de vivacité
 
     @classmethod
     def from_env(cls, env: Optional[Mapping[str, str]] = None) -> "Config":
@@ -33,5 +34,6 @@ class Config:
             broker_username=src.get("MBG_BROKER_USERNAME") or None,
             broker_password=src.get("MBG_BROKER_PASSWORD") or None,
             reconnect_delay=float(src.get("MBG_RECONNECT_DELAY", "5")),
+            max_reconnect_delay=float(src.get("MBG_MAX_RECONNECT_DELAY", "30")),
             poll_interval=float(src.get("MBG_POLL_INTERVAL", "0.5")),
         )

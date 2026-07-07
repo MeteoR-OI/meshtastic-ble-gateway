@@ -53,16 +53,21 @@ La passerelle forwarde le `/e/` **opaque** ; MeshForge déchiffre via
 
 ### Résilience (BLE instable)
 
-Trois niveaux, du plus fin au plus grossier :
+Le BLE décroche — souvent **silencieusement**. La passerelle traite ça comme la norme :
 
-1. **Perte de lien détectée** : abonnement à `meshtastic.connection.lost` → la session se
-   termine et se relance après `MBG_RECONNECT_DELAY` (backoff).
-2. **Échec de (re)connexion** node/broker : même boucle de reconnexion.
-3. **Crash complet du process** : `systemd Restart=always` relance le service.
+1. **Coupure silencieuse détectée** : à chaque poll, une **sonde de vivacité** lit l'état
+   BlueZ (`is_connected` via bleak) — le seul signal fiable quand meshtastic n'émet ni
+   exception ni `connection.lost`. Lien mort → session fermée → reconnexion.
+2. **Coupure signalée** : abonnement à `meshtastic.connection.lost` (redondant avec 1).
+3. **Échec de (re)connexion** node/broker : même boucle, **backoff exponentiel plafonné**
+   (`MBG_RECONNECT_DELAY` → `MBG_MAX_RECONNECT_DELAY`), remis à zéro après une session
+   productive. Chaque transition est **loguée** — fini le silence.
+4. **Gel total du process** : `Type=notify` + `WatchdogSec` → l'app pinge systemd à chaque
+   cycle sain ; sans ping, systemd relance (avec `Restart=always`).
 
-> Limite connue : un lien qui se fige *sans* que meshtastic n'émette `connection.lost`
-> ne serait pas encore détecté (un watchdog « pas de trafic depuis N min » est envisagé
-> pour une itération ultérieure — écarté ici pour éviter les faux positifs sur mesh calme).
+> Signature terrain du « silent death » (gateway `active` mais lien mort) : `bluetoothctl
+> info <MAC>` → `Connected: no` + silence du journal. C'est exactement ce que la sonde (1)
+> et le watchdog (4) éliminent.
 
 ### Tests
 
