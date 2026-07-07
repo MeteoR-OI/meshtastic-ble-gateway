@@ -10,13 +10,15 @@ On s'y abonne et on route vers un callback. Toutes les dépendances externes
 from __future__ import annotations
 
 import logging
-from typing import Callable
+from typing import Callable, Optional
 
 log = logging.getLogger("mbg.node")
 
 PROXY_TOPIC = "meshtastic.mqttclientproxymessage"
+CONNECTION_LOST_TOPIC = "meshtastic.connection.lost"
 
 OnProxy = Callable[[object], None]
+OnLost = Callable[[], None]
 
 
 def default_interface_factory(address: str):
@@ -45,6 +47,7 @@ class MeshtasticNodeLink:
         self,
         address: str,
         on_proxy: OnProxy,
+        on_lost: Optional[OnLost] = None,
         *,
         interface_factory: Callable[[str], object] = default_interface_factory,
         subscribe: Callable[[Callable, str], None] = default_subscribe,
@@ -52,6 +55,7 @@ class MeshtasticNodeLink:
     ) -> None:
         self._address = address
         self._on_proxy = on_proxy
+        self._on_lost = on_lost
         self._interface_factory = interface_factory
         self._subscribe = subscribe
         self._unsubscribe = unsubscribe
@@ -61,13 +65,21 @@ class MeshtasticNodeLink:
         """Signature attendue par le pubsub meshtastic (kwargs nommés)."""
         self._on_proxy(proxymessage)
 
+    def _handler_lost(self, interface=None) -> None:
+        """Perte du lien BLE signalée par meshtastic-python."""
+        log.warning("lien BLE perdu (node %s)", self._address)
+        if self._on_lost is not None:
+            self._on_lost()
+
     def open(self) -> None:
         self._subscribe(self._handler, PROXY_TOPIC)
+        self._subscribe(self._handler_lost, CONNECTION_LOST_TOPIC)
         self._iface = self._interface_factory(self._address)
         log.info("node connecté (BLE %s)", self._address)
 
     def close(self) -> None:
         self._unsubscribe(self._handler, PROXY_TOPIC)
+        self._unsubscribe(self._handler_lost, CONNECTION_LOST_TOPIC)
         if self._iface is not None:
             self._iface.close()
             self._iface = None

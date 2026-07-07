@@ -39,6 +39,19 @@ Config aussi possible par variables d'env (`MBG_*`, cf. `deploy/README.md`). La
 passerelle forwarde le `/e/` **opaque** ; MeshForge déchiffre via
 `MESHTASTIC_CHANNEL_KEYS`. Déploiement RPi (systemd) : voir `deploy/README.md`.
 
+### Résilience (BLE instable)
+
+Trois niveaux, du plus fin au plus grossier :
+
+1. **Perte de lien détectée** : abonnement à `meshtastic.connection.lost` → la session se
+   termine et se relance après `MBG_RECONNECT_DELAY` (backoff).
+2. **Échec de (re)connexion** node/broker : même boucle de reconnexion.
+3. **Crash complet du process** : `systemd Restart=always` relance le service.
+
+> Limite connue : un lien qui se fige *sans* que meshtastic n'émette `connection.lost`
+> ne serait pas encore détecté (un watchdog « pas de trafic depuis N min » est envisagé
+> pour une itération ultérieure — écarté ici pour éviter les faux positifs sur mesh calme).
+
 ### Tests
 
 ```bash

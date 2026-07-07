@@ -46,8 +46,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             config.broker_host, config.broker_port, config.broker_username, config.broker_password
         )
 
-    def nodelink_factory(address, on_proxy):
-        return MeshtasticNodeLink(address, on_proxy)
+    def nodelink_factory(address, on_proxy, on_lost):
+        return MeshtasticNodeLink(address, on_proxy, on_lost)
 
     gateway = Gateway(config, publisher_factory, nodelink_factory)
 

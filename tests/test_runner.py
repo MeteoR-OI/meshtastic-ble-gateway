@@ -16,7 +16,7 @@ def test_no_session_when_stopped_immediately():
         called["pub"] += 1
         return FakePublisher()
 
-    def nf(a, cb):
+    def nf(a, cb, on_lost):
         called["link"] += 1
         return FakeNodeLink(a, cb)
 
@@ -28,7 +28,7 @@ def test_normal_session_opens_and_closes():
     pub = FakePublisher()
     box = {}
 
-    def nf(addr, cb):
+    def nf(addr, cb, on_lost):
         box["link"] = FakeNodeLink(addr, cb)
         return box["link"]
 
@@ -50,8 +50,31 @@ def test_reconnect_delay_on_session_error():
     gw = Gateway(
         Config(reconnect_delay=7),
         lambda: BoomPublisher(),
-        lambda a, cb: FakeNodeLink(a, cb),
+        lambda a, cb, ol: FakeNodeLink(a, cb),
         sleep=slept.append,
     )
     gw.run(seq_should_continue([True, False]))
     assert slept == [7]
+
+
+def test_reconnect_on_ble_connection_lost():
+    holder = {}
+
+    def nf(addr, cb, on_lost):
+        holder["on_lost"] = on_lost  # = lost.set de la session
+        return FakeNodeLink(addr, cb)
+
+    slept = []
+
+    def sleep_(s):
+        slept.append(s)
+        # simuler une perte BLE pendant le 1er poll de la session
+        if s == 0.5 and "fired" not in holder:
+            holder["fired"] = True
+            holder["on_lost"]()
+
+    gw = Gateway(Config(poll_interval=0.5, reconnect_delay=3), lambda: FakePublisher(), nf, sleep=sleep_)
+    gw.run(seq_should_continue([True, True, True, False]))
+    # 0.5 = poll ; 3 = backoff de reconnexion déclenché par la perte
+    assert 0.5 in slept
+    assert 3 in slept

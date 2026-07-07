@@ -4,6 +4,7 @@ import pubsub
 
 from fakes import FakeIface
 from mbg.node import (
+    CONNECTION_LOST_TOPIC,
     PROXY_TOPIC,
     MeshtasticNodeLink,
     default_interface_factory,
@@ -28,7 +29,9 @@ def test_open_subscribes_and_connects():
         unsubscribe=lambda h, t: None,
     )
     link.open()
-    assert subs[0][1] == PROXY_TOPIC
+    topics = [t for _, t in subs]
+    assert PROXY_TOPIC in topics
+    assert CONNECTION_LOST_TOPIC in topics
     assert made["addr"] == "addr"
 
 
@@ -39,12 +42,12 @@ def test_handler_routes_to_on_proxy():
         "addr",
         received.append,
         interface_factory=FakeIface,
-        subscribe=lambda h, t: captured.__setitem__("h", h),
+        subscribe=lambda h, t: captured.setdefault(t, h),
         unsubscribe=lambda h, t: None,
     )
     link.open()
     msg = object()
-    captured["h"](proxymessage=msg, interface="iface")
+    captured[PROXY_TOPIC](proxymessage=msg, interface="iface")
     assert received == [msg]
 
 
@@ -67,7 +70,9 @@ def test_close_after_open():
     link.open()
     link.close()
     assert ifaces[0].closed is True
-    assert unsub[0][1] == PROXY_TOPIC
+    topics = [t for _, t in unsub]
+    assert PROXY_TOPIC in topics
+    assert CONNECTION_LOST_TOPIC in topics
 
 
 def test_close_without_open_skips_iface():
@@ -79,7 +84,36 @@ def test_close_without_open_skips_iface():
         unsubscribe=lambda h, t: unsub.append(t),
     )
     link.close()  # branche _iface is None
-    assert unsub == [PROXY_TOPIC]
+    assert unsub == [PROXY_TOPIC, CONNECTION_LOST_TOPIC]
+
+
+def test_handler_lost_routes_to_on_lost():
+    lost_called = []
+    captured = {}
+    link = MeshtasticNodeLink(
+        "addr",
+        lambda m: None,
+        on_lost=lambda: lost_called.append(True),
+        interface_factory=FakeIface,
+        subscribe=lambda h, t: captured.setdefault(t, h),
+        unsubscribe=lambda h, t: None,
+    )
+    link.open()
+    captured[CONNECTION_LOST_TOPIC](interface="iface")
+    assert lost_called == [True]
+
+
+def test_handler_lost_without_callback_is_noop():
+    captured = {}
+    link = MeshtasticNodeLink(
+        "addr",
+        lambda m: None,  # on_lost par défaut = None
+        interface_factory=FakeIface,
+        subscribe=lambda h, t: captured.setdefault(t, h),
+        unsubscribe=lambda h, t: None,
+    )
+    link.open()
+    captured[CONNECTION_LOST_TOPIC](interface="iface")  # ne doit pas lever
 
 
 def test_default_interface_factory(monkeypatch):

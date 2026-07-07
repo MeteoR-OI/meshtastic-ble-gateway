@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from typing import Callable
 
@@ -13,7 +14,11 @@ from .proxy import Proxy
 log = logging.getLogger("mbg.runner")
 
 PublisherFactory = Callable[[], object]
-NodeLinkFactory = Callable[[str, Callable[[object], None]], object]
+NodeLinkFactory = Callable[[str, Callable[[object], None], Callable[[], None]], object]
+
+
+class ConnectionLost(Exception):
+    """Lève une reconnexion quand le lien BLE tombe en cours de session."""
 
 
 class Gateway:
@@ -49,10 +54,13 @@ class Gateway:
         publisher = self._publisher_factory()
         publisher.connect()
         proxy = Proxy(publisher)
-        link = self._nodelink_factory(self._config.ble_address, proxy.on_proxy_message)
+        lost = threading.Event()  # armé par meshtastic sur perte du lien BLE
+        link = self._nodelink_factory(self._config.ble_address, proxy.on_proxy_message, lost.set)
         link.open()
         try:
             while should_continue():
+                if lost.is_set():
+                    raise ConnectionLost()
                 self._sleep(self._config.poll_interval)
         finally:
             link.close()

@@ -21,7 +21,7 @@ class FakeGateway:
         self.before_stop = should_continue()
         # exerce les fabriques réelles (constructeurs sans I/O)
         self.publisher = self.publisher_factory()
-        self.link = self.nodelink_factory("addr", lambda m: None)
+        self.link = self.nodelink_factory("addr", lambda m: None, lambda: None)
 
 
 @pytest.fixture
