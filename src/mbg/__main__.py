@@ -9,6 +9,7 @@ import signal
 from typing import Optional, Sequence
 
 from .config import Config
+from .meshtastic_patch import apply_meshtastic_patches
 from .mqtt_publisher import PahoPublisher
 from .node import MeshtasticNodeLink
 from .runner import Gateway
@@ -37,6 +38,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
     )
+    apply_meshtastic_patches()  # anti-gel BLE, avant toute connexion
     config = Config(
         ble_address=args.ble,
         broker_host=args.broker,

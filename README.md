@@ -55,6 +55,11 @@ La passerelle forwarde le `/e/` **opaque** ; MeshForge déchiffre via
 
 Le BLE décroche — souvent **silencieusement**. La passerelle traite ça comme la norme :
 
+0. **Anti-gel** (`meshtastic_patch`) : sur lien mort, `meshtastic.close()` gelait en
+   écrivant un paquet « disconnect » au radio (`write_gatt_char` sans timeout — cause
+   confirmée par py-spy). Comme la passerelle ne fait que *recevoir*, on **neutralise ce
+   `_sendDisconnect`** → la fermeture n'accroche plus, donc la reconnexion in-process
+   ci-dessous **va au bout** (au lieu de dépendre d'un restart systemd).
 1. **Coupure silencieuse détectée** : à chaque poll, une **sonde de vivacité** lit l'état
    BlueZ (`is_connected` via bleak) — le seul signal fiable quand meshtastic n'émet ni
    exception ni `connection.lost`. Lien mort → session fermée → reconnexion.

@@ -18,6 +18,12 @@ Pont **BLE → MQTT** pour faire remonter un node Meshtastic **BT-only** dans
   signal fiable = l'état BlueZ via `iface.client.bleak_client.is_connected` (bleak) — d'où
   la **sonde de vivacité** (`node.default_liveness`) sondée à chaque poll par le runner.
   Compléter par un watchdog systemd (`Type=notify`/`WatchdogSec`, module `systemd_notify`).
+- **Anti-gel `meshtastic_patch` (crucial)** : `MeshInterface.close()` gèle sur lien mort en
+  écrivant un paquet disconnect (`_sendDisconnect`→`write_gatt_char` sans timeout ; cause
+  confirmée py-spy, 72% des dumps). On le **neutralise** (`apply_meshtastic_patches()` appelé
+  dans `__main__`) — sans lui, la reconnexion in-process ne va jamais au bout. Patch défensif
+  (idempotent, no-op si l'API meshtastic change). NB : la passerelle est receive-only, donc
+  ce paquet disconnect ne sert à rien.
 - BLE : **1 seul client connecté à la fois**. Cible = MAC sur Linux/BlueZ, nom/UUID sur macOS.
 
 ## Architecture (`src/mbg/`)
