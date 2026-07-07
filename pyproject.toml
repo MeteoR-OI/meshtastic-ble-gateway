@@ -3,7 +3,7 @@ name = "meshtastic-ble-gateway"
 version = "0.0.1"
 description = "Pont BLE → MQTT pour nodes Meshtastic BT-only, à destination de MeshForge"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.9"
 license = "AGPL-3.0-or-later"
 authors = [{ name = "Mickaël Hoareau" }]
 dependencies = [

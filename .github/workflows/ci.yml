@@ -8,11 +8,15 @@ jobs:
   unit:
     name: Tests unitaires (100% couverture)
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # 3.9 = RPi OS Bullseye (cible de déploiement) ; 3.11 = cible moderne.
+        python-version: ["3.9", "3.11"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev]"
       # Sans broker : le test d'intégration se skippe ; le unitaire vise 100%.
       - run: pytest

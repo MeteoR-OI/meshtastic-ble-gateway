@@ -1,4 +1,4 @@
-# systemd unit — passerelle BLE→MQTT sur le RPi (ex. MHA235).
+# systemd unit — passerelle BLE→MQTT sur le RPi.
 # Install : cp deploy/mbg.service /etc/systemd/system/ ; adapter les Environment=
 #           systemctl daemon-reload && systemctl enable --now mbg
 [Unit]

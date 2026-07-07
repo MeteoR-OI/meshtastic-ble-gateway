@@ -24,7 +24,7 @@ MeshForge consomme.
 | Version | Contenu | État |
 |---------|---------|------|
 | **PoC** | Client Proxy over BLE, validé sur T114 réel (n'émet que du `/e/`) | ✅ `poc/` |
-| **V0.1** | Passerelle durcie (`src/mbg/`, tests 100 %, CI, Docker, systemd) — cible RPi **MHA235** | ✅ |
+| **V0.1** | Passerelle durcie (`src/mbg/`, tests 100 %, CI, Docker, systemd) — déploiement RPi | ✅ |
 | **V0.2** | Monitoring : stockage local SQLite des infos node (base de la « sonde ») | à venir |
 | **V0.3** | Paliers batterie + duty-cycle du lien BLE | à venir |
 

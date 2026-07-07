@@ -1,4 +1,4 @@
-# Déploiement V0.1 sur le RPi (MHA235)
+# Déploiement V0.1 sur le RPi
 
 Passerelle = forward opaque du Client Proxy `/e/` du node vers le broker MeshForge.
 Le déchiffrement se fait côté MeshForge (voir plus bas).
