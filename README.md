@@ -28,16 +28,28 @@ MeshForge consomme.
 | **V0.2** | Monitoring : stockage local SQLite des infos node (base de la « sonde ») | à venir |
 | **V0.3** | Paliers batterie + duty-cycle du lien BLE | à venir |
 
-## Lancer la passerelle (V0.1)
+## Lancer & configurer (V0.1)
+
+Deux sources de config : l'**environnement (`MBG_*`) fournit la base** — c'est ainsi que
+systemd configure le service — et les **arguments CLI priment** s'ils sont fournis (usage
+manuel / PoC).
 
 ```bash
 python -m venv .venv && ./.venv/bin/pip install -e ".[dev]"
-./.venv/bin/python -m mbg --ble PAM_bea5 --broker localhost   # macOS : nom ; RPi : MAC
+
+# manuel, via CLI (macOS : nom BLE ; RPi : MAC) :
+./.venv/bin/python -m mbg --ble PAM_bea5 --broker localhost
+
+# ou via l'environnement, comme le service systemd (aucun argument) :
+MBG_BLE_ADDRESS=F9:... MBG_BROKER_HOST=mqtt.example ./.venv/bin/python -m mbg
 ```
 
-Config aussi possible par variables d'env (`MBG_*`, cf. `deploy/README.md`). La
-passerelle forwarde le `/e/` **opaque** ; MeshForge déchiffre via
-`MESHTASTIC_CHANNEL_KEYS`. Déploiement RPi (systemd) : voir `deploy/README.md`.
+Table complète des variables `MBG_*` et déploiement RPi (systemd) :
+voir [`deploy/README.md`](deploy/README.md).
+
+La passerelle forwarde le `/e/` **opaque** ; MeshForge déchiffre via
+`MESHTASTIC_CHANNEL_KEYS` (le node n'émet que du `/e/` chiffré en Client Proxy, pas de
+`/json/`).
 
 ### Résilience (BLE instable)
 
@@ -68,13 +80,15 @@ docker compose -f poc/docker-compose.yml up -d && pytest tests/integration --no-
 | > 25 % | poll 60 min | connecté, proxy live |
 | < 25 % | 1 poll/fenêtre | duty-cycle 5 min / 30 min (⚠️ trous de flux assumés) |
 
-## Deux mécanismes possibles
+## Mécanisme retenu
 
-1. **Client Proxy firmware** (testé par le PoC) : le node produit ses trames MQTT, on
-   les relaie **telles quelles**. Minimal si ça marche sur BLE.
-2. **Nodeless republish** (repli) : on reçoit les paquets décodés (`meshtastic.receive`)
-   et on **reconstruit** le JSON attendu par MeshForge (`msh/<region>/<gwnum>/json/<channel>/<gwid>`).
-   Plus de code, mais robuste sur BLE. Retenu si le PoC échoue.
+**Client Proxy firmware** (validé par le PoC sur un T114 réel) : le node produit ses
+trames MQTT et les pousse sur le lien BLE ; la passerelle les **relaie telles quelles**
+au broker. Minimal et robuste — aucun déchiffrement ni reconstruction côté passerelle.
+
+> Repli non retenu : « nodeless republish » (s'abonner à `meshtastic.receive`, reconstruire
+> le JSON `msh/<region>/<gwnum>/json/<channel>/<gwid>`). Plus de code ; il aurait servi si
+> le Client Proxy over BLE ne fonctionnait pas — mais le PoC a confirmé qu'il fonctionne.
 
 ## Démarrer
 
