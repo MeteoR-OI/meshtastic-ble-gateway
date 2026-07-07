@@ -8,7 +8,7 @@ import logging
 import signal
 from typing import Optional, Sequence
 
-from .config import DEFAULT_BLE, Config
+from .config import Config
 from .mqtt_publisher import PahoPublisher
 from .node import MeshtasticNodeLink
 from .runner import Gateway
@@ -16,19 +16,23 @@ from .runner import Gateway
 log = logging.getLogger("mbg")
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser(defaults: Config) -> argparse.ArgumentParser:
+    """Parser dont les défauts viennent de l'ENV (MBG_*) ; la CLI ne fait qu'override."""
     p = argparse.ArgumentParser(prog="mbg", description="Passerelle BLE → MQTT Meshtastic")
-    p.add_argument("--ble", default=DEFAULT_BLE, help=f"MAC/nom BLE du node (défaut {DEFAULT_BLE})")
-    p.add_argument("--broker", default="localhost", help="hôte du broker MQTT")
-    p.add_argument("--port", type=int, default=1883, help="port MQTT")
-    p.add_argument("--username", default=None, help="user MQTT (optionnel)")
-    p.add_argument("--password", default=None, help="password MQTT (optionnel)")
+    p.add_argument("--ble", default=defaults.ble_address, help="MAC/nom BLE du node")
+    p.add_argument("--broker", default=defaults.broker_host, help="hôte du broker MQTT")
+    p.add_argument("--port", type=int, default=defaults.broker_port, help="port MQTT")
+    p.add_argument("--username", default=defaults.broker_username, help="user MQTT (optionnel)")
+    p.add_argument("--password", default=defaults.broker_password, help="password MQTT (optionnel)")
     p.add_argument("-v", "--verbose", action="store_true", help="logs debug")
     return p
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    args = build_parser().parse_args(argv)
+    # L'environnement (MBG_*) fournit la base — c'est ainsi que systemd configure le
+    # service ; les arguments CLI, s'ils sont fournis, priment (usage manuel / PoC).
+    env_config = Config.from_env()
+    args = build_parser(env_config).parse_args(argv)
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
@@ -39,6 +43,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         broker_port=args.port,
         broker_username=args.username,
         broker_password=args.password,
+        reconnect_delay=env_config.reconnect_delay,
+        poll_interval=env_config.poll_interval,
     )
 
     def publisher_factory():
