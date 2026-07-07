@@ -1,0 +1,10 @@
+# Broker Mosquitto local pour OBSERVER la sortie du PoC sans dépendre de MeshForge.
+#   docker compose -f poc/docker-compose.yml up -d
+#   mosquitto_sub -h localhost -t 'msh/#' -v
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro

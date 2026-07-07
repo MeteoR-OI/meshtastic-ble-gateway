@@ -1,0 +1,25 @@
+# systemd unit — passerelle BLE→MQTT sur le RPi (ex. MHA235).
+# Install : cp deploy/mbg.service /etc/systemd/system/ ; adapter les Environment=
+#           systemctl daemon-reload && systemctl enable --now mbg
+[Unit]
+Description=Meshtastic BLE -> MQTT gateway (MeshForge)
+After=bluetooth.target network-online.target
+Wants=bluetooth.target network-online.target
+
+[Service]
+Type=simple
+# Utilisateur dédié, membre du groupe `bluetooth` pour accéder à hci0.
+User=mbg
+SupplementaryGroups=bluetooth
+WorkingDirectory=/opt/meshtastic-ble-gateway
+# Config par variables d'env (cf. src/mbg/config.py). MAC côté BlueZ.
+Environment=MBG_BLE_ADDRESS=E6:E3:53:4B:BE:A5
+Environment=MBG_BROKER_HOST=mqtt-mt.meteor-oi.re
+Environment=MBG_BROKER_PORT=1883
+ExecStart=/opt/meshtastic-ble-gateway/.venv/bin/python -m mbg
+# BLE 24/7 peu fiable : on relance toujours (le code reconnecte déjà en interne).
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# Tests / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Données locales (V0.2 : SQLite de la sonde)
+*.db
+*.sqlite
+*.sqlite3
+
+# Outils
+.mypy_cache/
+.ruff_cache/
+
+# OS / éditeurs
+.DS_Store
+.idea/
+.vscode/

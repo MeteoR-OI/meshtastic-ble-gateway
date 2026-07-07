@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  unit:
+    name: Tests unitaires (100% couverture)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+      # Sans broker : le test d'intégration se skippe ; le unitaire vise 100%.
+      - run: pytest
+
+  integration:
+    name: Intégration (broker Mosquitto réel)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+      - name: Démarrer Mosquitto
+        run: |
+          docker run -d --name mosquitto -p 1883:1883 \
+            -v "$PWD/poc/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro" \
+            eclipse-mosquitto:2
+          for i in $(seq 1 15); do
+            (echo > /dev/tcp/localhost/1883) 2>/dev/null && break || sleep 1
+          done
+      - name: Test d'intégration
+        run: pytest tests/integration --no-cov
