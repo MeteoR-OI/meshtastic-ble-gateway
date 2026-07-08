@@ -29,3 +29,7 @@ coverage.xml
 .DS_Store
 .idea/
 .vscode/
+# BMAD (le gros est dans ~/.gitignore global ; ici : settings.json = uniquement les hooks BMAD)
+.bmad-loop/runs/
+.bmad-loop/cache/
+.claude/settings.json
