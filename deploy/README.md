@@ -105,6 +105,9 @@ curl -H "X-API-Token: $TOKEN" -d '{"text":"alerte","channel":"Fr_Balise"}' $BASE
 curl -H "X-API-Token: $TOKEN" -d '{"text":"test","channel":"Fr_Balise","want_ack":true}' $BASE/send/text
 # télémétrie :
 curl -H "X-API-Token: $TOKEN" -d '{}' $BASE/send/telemetry
+# forcer une diffusion de position (rafraîchit la carte sans attendre le cycle 12 h) :
+curl -H "X-API-Token: $TOKEN" -X POST $BASE/send/position          # ré-émet la position FIXE du node
+curl -H "X-API-Token: $TOKEN" -d '{"lat":-21.34,"lon":55.47,"alt":120}' $BASE/send/position  # override explicite
 # admin (rôle, intervalles…) :
 curl -H "X-API-Token: $TOKEN" -d '{"setting":"position_broadcast_secs","value":43200}' $BASE/admin
 curl -H "X-API-Token: $TOKEN" $BASE/health
@@ -113,6 +116,11 @@ curl -H "X-API-Token: $TOKEN" $BASE/health
 Réponses : `200` ok, `401` token invalide, `503` aucun worker connecté, `504` timeout
 worker, `400` commande invalide. Réglages admin : `role`, `position_broadcast_secs`,
 `gps_mode`, `device_update_interval` (extensible dans `src/mbg/control.py`).
+
+`/send/position` **fournit toujours des coordonnées** : sans payload, il **relit la
+position fixe du node** et la ré-émet. C'est volontaire — `sendPosition()` sans coords
+émettrait `0,0`, que le firmware **adopterait comme position locale** (il écraserait la
+position fixe). Si le node n'a aucune position connue → `400` (refus d'émettre 0,0).
 
 `want_ack` (optionnel, `/send/text`) demande un **accusé d'émission radio** : la réponse
 HTTP reste immédiate (`ok`), et l'ACK/NAK arrive **plus tard** dans le journal

@@ -51,8 +51,10 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
   le watchdog systemd (`sd_notify`). Testé avec un faux spawn (aucun vrai process).
 - `systemd_notify.py` — `sd_notify` (watchdog, sans dépendance).
 - `control.py` — `execute_command(iface, command)` : traduit une commande (text/telemetry/
-  admin) en appel meshtastic. Ne lève jamais. Whitelist admin extensible. Pour `want_ack`,
-  renvoie `packet_id` (le node corrèle l'ACK).
+  position/admin) en appel meshtastic. Ne lève jamais. Whitelist admin extensible. Pour
+  `want_ack`, renvoie `packet_id` (le node corrèle l'ACK). **`position`** ré-émet TOUJOURS
+  des coordonnées (override `{lat,lon,alt}` ou position fixe lue sur le node) — jamais 0,0,
+  que le firmware adopterait comme position locale (écraserait la position fixe).
 - **ACK radio (want_ack)** : `sendText(onResponse=…)` est **CASSÉ** en meshtastic BLE 2.7.10
   (le handler ne matche pas le requestId — prouvé py-spy/capture). ⇒ on ne s'y fie PAS :
   `node` s'abonne à `meshtastic.receive`, corrèle un `ROUTING_APP` entrant dont le

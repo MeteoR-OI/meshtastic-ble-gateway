@@ -4,8 +4,9 @@
 
 `handle_request` est **pur** (auth token + routage + validation) → testable à
 100 %. `serve` est l'adaptateur socket/thread (frontière OS, testé en intégration).
-Auth par en-tête `X-API-Token`. Routes : POST /send/text, /send/telemetry, /admin ;
-GET /health. Les commandes sont relayées au worker via `dispatch` (déjà borné en
+Auth par en-tête `X-API-Token`. Routes : POST /send/text, /send/telemetry,
+/send/position, /admin ; GET /health, /metrics, /history. Les commandes POST sont
+relayées au worker via `dispatch` (déjà borné en
 timeout) qui renvoie `{"ok": bool, ...}`.
 """
 from __future__ import annotations
@@ -35,6 +36,9 @@ def _command_for(path: str, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]
         }
     if path == "/send/telemetry":
         return {"type": "telemetry", "dest": payload.get("dest")}
+    if path == "/send/position":
+        # lat/lon/alt optionnels : absents -> ré-émet la position FIXE du node (jamais 0,0).
+        return {"type": "position", "lat": payload.get("lat"), "lon": payload.get("lon"), "alt": payload.get("alt")}
     if path == "/admin":
         return {"type": "admin", "setting": payload.get("setting"), "value": payload.get("value")}
     return None

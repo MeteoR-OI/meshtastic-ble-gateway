@@ -46,6 +46,24 @@ def test_send_telemetry_empty_body():
     assert status == 200
 
 
+def test_send_position_empty_body():
+    seen = {}
+    status, _ = handle_request(
+        "POST", "/send/position", _hdr("s"), "", "s", lambda c: (seen.update(c) or {"ok": True})
+    )
+    assert status == 200
+    assert seen == {"type": "position", "lat": None, "lon": None, "alt": None}  # -> position node
+
+
+def test_send_position_with_coords():
+    seen = {}
+    status, _ = handle_request(
+        "POST", "/send/position", _hdr("s"), '{"lat":1.5,"lon":2.5,"alt":10}', "s",
+        lambda c: (seen.update(c) or {"ok": True}),
+    )
+    assert status == 200 and seen["lat"] == 1.5 and seen["lon"] == 2.5 and seen["alt"] == 10
+
+
 def test_admin_route():
     seen = {}
     status, _ = handle_request(

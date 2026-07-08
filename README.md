@@ -34,7 +34,8 @@ MeshForge consomme.
 Puisque la passerelle **monopolise le BLE** (1 client à la fois), elle est le seul moyen
 de parler au node pendant qu'elle tourne. Une **API HTTP à token** (activée si
 `MBG_API_TOKEN` défini) permet d'**envoyer du texte** (canal public ou privé), **de la
-télémétrie**, et **d'administrer le node** (rôle, intervalles…). Détails, endpoints et
+télémétrie**, **de forcer une diffusion de position** (rafraîchir la carte sans attendre le
+cycle de 12 h), et **d'administrer le node** (rôle, intervalles…). Détails, endpoints et
 sécurité : voir [`deploy/README.md`](deploy/README.md).
 
 Les commandes passent par le worker (écriture BLE) ; un write qui gèle est absorbé par
