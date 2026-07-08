@@ -4,12 +4,14 @@
 
 Il tourne UNE session (`run_one_session`) et sort en `os._exit` — DUR, pour ne
 jamais appeler le `close()` meshtastic qui gèle sur lien mort. Sortie du worker →
-le superviseur respawn. Émet un heartbeat (compteur partagé) à chaque poll.
+le superviseur respawn. Émet un heartbeat (compteur partagé) à chaque poll et
+exécute les commandes downlink reçues via les queues.
 """
 from __future__ import annotations
 
 import logging
 import os
+import queue
 import signal
 from typing import Callable
 
@@ -23,9 +25,29 @@ log = logging.getLogger("mbg.worker")
 EXIT_RESPAWN = 0  # code de sortie : rien d'anormal, le parent respawn
 
 
+class QueueCommandChannel:
+    """Vue worker des queues de commandes (drain) / résultats (reply)."""
+
+    def __init__(self, cmd_q, res_q) -> None:
+        self._cmd_q = cmd_q
+        self._res_q = res_q
+
+    def drain(self):
+        out = []
+        while True:
+            try:
+                out.append(self._cmd_q.get_nowait())
+            except queue.Empty:
+                return out
+
+    def reply(self, cmd_id, result) -> None:
+        self._res_q.put({"id": cmd_id, **result})
+
+
 def _worker_body(
     config: Config,
     beat_counter,
+    commands=None,
     *,
     session: Callable = run_one_session,
     publisher_cls=PahoPublisher,
@@ -46,16 +68,19 @@ def _worker_body(
         return nodelink_cls(address, on_proxy, on_lost)
 
     try:
-        session(config, publisher_factory, nodelink_factory, heartbeat, lambda: True)
+        session(
+            config, publisher_factory, nodelink_factory, heartbeat, lambda: True, commands=commands
+        )
     except Exception as exc:  # noqa: BLE001 — toute panne = fin de session, le parent respawn
         log.warning("session worker interrompue : %s", exc)
     return EXIT_RESPAWN
 
 
-def run_worker(config: Config, beat_counter) -> None:  # pragma: no cover — frontière process/OS
+def run_worker(config, counter, cmd_q, res_q) -> None:  # pragma: no cover — frontière process/OS
     """Point d'entrée du sous-processus. Sort en os._exit (jamais de close() qui gèle)."""
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s [worker] %(message)s"
     )
     signal.signal(signal.SIGTERM, lambda *_: os._exit(EXIT_RESPAWN))
-    os._exit(_worker_body(config, beat_counter))
+    commands = QueueCommandChannel(cmd_q, res_q)
+    os._exit(_worker_body(config, counter, commands))

@@ -1,4 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
+import threading
+
 from fakes import FakeWorkerHandle
 from mbg.config import Config
 from mbg.supervisor import Supervisor
@@ -154,3 +156,49 @@ def test_stop_kills_running_worker():
     ).run(seq([True, True, False, False]))
 
     assert workers[0].killed is True  # _stop_worker tue le worker encore vivant
+
+
+def _quiet_sup(**kw):
+    return Supervisor(
+        Config(), lambda: FakeWorkerHandle(), sleep=lambda s: None,
+        clock=lambda: 0.0, notify=lambda _: None, **kw,
+    )
+
+
+def test_submit_without_worker():
+    r = _quiet_sup().submit({"type": "text"}, 1)
+    assert r["ok"] is False and "aucun worker" in r["error"]
+
+
+def test_submit_worker_not_connected():
+    sup = _quiet_sup()
+    sup._set_current(FakeWorkerHandle(beat_value=0))  # pas encore connecté
+    assert sup.submit({}, 1)["ok"] is False
+
+
+def test_submit_delegates_to_connected_worker():
+    sup = _quiet_sup()
+    worker = FakeWorkerHandle(beat_value=5)
+    worker.submit_result = {"ok": True, "detail": "ok"}
+    sup._set_current(worker)
+    r = sup.submit({"type": "text"}, 2)
+    assert r == {"ok": True, "detail": "ok"}
+    assert worker.submitted == ({"type": "text"}, 2)
+
+
+def test_run_starts_api_server_thread():
+    done = threading.Event()
+    captured = {}
+
+    def serve(submit, should_run):
+        captured["submit"] = submit
+        captured["run"] = should_run()
+        done.set()
+
+    sup = Supervisor(
+        Config(), lambda: FakeWorkerHandle(), sleep=lambda s: None,
+        clock=lambda: 0.0, notify=lambda _: None, serve=serve,
+    )
+    sup.run(lambda: False)  # pas de spawn ; le thread serveur démarre quand même
+    assert done.wait(2)
+    assert captured["submit"] == sup.submit

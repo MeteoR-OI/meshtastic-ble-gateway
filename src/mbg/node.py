@@ -12,6 +12,8 @@ from __future__ import annotations
 import logging
 from typing import Callable, Optional
 
+from .control import execute_command
+
 log = logging.getLogger("mbg.node")
 
 PROXY_TOPIC = "meshtastic.mqttclientproxymessage"
@@ -68,6 +70,7 @@ class MeshtasticNodeLink:
         subscribe: Callable[[Callable, str], None] = default_subscribe,
         unsubscribe: Callable[[Callable, str], None] = default_unsubscribe,
         liveness: Callable[[object], bool] = default_liveness,
+        executor: Callable[[object, dict], dict] = execute_command,
     ) -> None:
         self._address = address
         self._on_proxy = on_proxy
@@ -76,6 +79,7 @@ class MeshtasticNodeLink:
         self._subscribe = subscribe
         self._unsubscribe = unsubscribe
         self._liveness = liveness
+        self._executor = executor
         self._iface = None
 
     def _handler(self, proxymessage=None, interface=None) -> None:
@@ -93,6 +97,10 @@ class MeshtasticNodeLink:
         if self._iface is None:
             return False
         return self._liveness(self._iface)
+
+    def send(self, command: dict) -> dict:
+        """Exécute une commande downlink sur l'interface (write BLE). Voir `control`."""
+        return self._executor(self._iface, command)
 
     def open(self) -> None:
         self._subscribe(self._handler, PROXY_TOPIC)

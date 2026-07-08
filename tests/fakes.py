@@ -71,6 +71,8 @@ class FakeNodeLink:
         self.closed = False
         self.alive = True  # basculer à False pour simuler un décrochage BLE
 
+        self.sent = []  # commandes downlink reçues
+
     def open(self):
         self.opened = True
 
@@ -79,6 +81,10 @@ class FakeNodeLink:
 
     def is_alive(self):
         return self.alive
+
+    def send(self, command):
+        self.sent.append(command)
+        return {"ok": True}
 
 
 class _DummyLock:
@@ -107,6 +113,8 @@ class FakeWorkerHandle:
         self.alive = alive
         self.killed = False
         self.joined = False
+        self.submitted = None
+        self.submit_result = {"ok": True}
 
     def beats(self):
         return self.beat_value
@@ -120,6 +128,10 @@ class FakeWorkerHandle:
 
     def join(self, timeout=None):
         self.joined = True
+
+    def submit(self, command, timeout):
+        self.submitted = (command, timeout)
+        return self.submit_result
 
 
 class FakeProcess:
@@ -152,7 +164,7 @@ class FakeProcess:
 
 
 class FakeContext:
-    """Imite un contexte multiprocessing (Value + Process)."""
+    """Imite un contexte multiprocessing (Value + Queue + Process)."""
 
     def __init__(self):
         self.last_process = None
@@ -161,6 +173,9 @@ class FakeContext:
         c = FakeCounter()
         c.value = initial
         return c
+
+    def Queue(self):
+        return object()  # non exercée dans les tests de spawn
 
     def Process(self, target=None, args=(), name=None, daemon=None):
         self.last_process = FakeProcess(target=target, args=args, name=name, daemon=daemon)

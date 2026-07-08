@@ -4,7 +4,8 @@ import signal as signal_mod
 import pytest
 
 import mbg.__main__ as main_mod
-from mbg.__main__ import main
+from mbg.__main__ import _build_serve, main
+from mbg.config import Config
 
 
 class FakeSupervisor:
@@ -73,3 +74,22 @@ def test_cli_args_override_env(captured_signals, monkeypatch):
     rc = main(["--broker", "from-cli"])
     assert rc == 0
     assert FakeSupervisor.last.config.broker_host == "from-cli"
+
+
+def test_api_token_propagated_from_env(captured_signals, monkeypatch):
+    monkeypatch.setenv("MBG_API_TOKEN", "sekret")
+    rc = main([])
+    assert rc == 0
+    assert FakeSupervisor.last.config.api_token == "sekret"
+
+
+def test_build_serve_none_without_token():
+    assert _build_serve(Config()) is None
+
+
+def test_build_serve_calls_api(monkeypatch):
+    called = {}
+    monkeypatch.setattr(main_mod.api, "serve", lambda *a: called.setdefault("args", a))
+    serve = _build_serve(Config(api_token="t", api_host="h", api_port=9, control_timeout=3))
+    serve("SUBMIT", "SHOULD_RUN")
+    assert called["args"] == ("h", 9, "t", 3, "SUBMIT", "SHOULD_RUN")

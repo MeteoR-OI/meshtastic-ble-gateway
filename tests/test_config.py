@@ -13,6 +13,10 @@ ENV_KEYS = [
     "MBG_SUPERVISOR_TICK",
     "MBG_CONNECT_GRACE",
     "MBG_ALIVE_TIMEOUT",
+    "MBG_API_TOKEN",
+    "MBG_API_HOST",
+    "MBG_API_PORT",
+    "MBG_CONTROL_TIMEOUT",
 ]
 
 
@@ -29,6 +33,10 @@ def test_defaults_from_empty_env():
     assert c.supervisor_tick == 1.0
     assert c.connect_grace == 45.0
     assert c.alive_timeout == 15.0
+    assert c.api_token is None
+    assert c.api_host == "0.0.0.0"
+    assert c.api_port == 8080
+    assert c.control_timeout == 10.0
 
 
 def test_full_env_override():
@@ -45,6 +53,10 @@ def test_full_env_override():
             "MBG_SUPERVISOR_TICK": "2",
             "MBG_CONNECT_GRACE": "60",
             "MBG_ALIVE_TIMEOUT": "12",
+            "MBG_API_TOKEN": "tok",
+            "MBG_API_HOST": "127.0.0.1",
+            "MBG_API_PORT": "9090",
+            "MBG_CONTROL_TIMEOUT": "7",
         }
     )
     assert c.ble_address == "AA:BB:CC"
@@ -58,6 +70,10 @@ def test_full_env_override():
     assert c.supervisor_tick == 2.0
     assert c.connect_grace == 60.0
     assert c.alive_timeout == 12.0
+    assert c.api_token == "tok"
+    assert c.api_host == "127.0.0.1"
+    assert c.api_port == 9090
+    assert c.control_timeout == 7.0
 
 
 def test_empty_credentials_become_none():

@@ -15,7 +15,7 @@ from mbg.process_backend import WorkerHandle, spawn_worker
 _FORK = "fork" in multiprocessing.get_all_start_methods()
 
 
-def _beater(config, counter):
+def _beater(config, counter, cmd_q, res_q):
     """Cible du fork : bat 3 fois puis se fige (attend d'être tué)."""
     for _ in range(3):
         with counter.get_lock():

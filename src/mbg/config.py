@@ -25,6 +25,11 @@ class Config:
     supervisor_tick: float = 1.0  # cadence de surveillance du superviseur
     connect_grace: float = 45.0  # délai toléré sans heartbeat pendant la connexion BLE
     alive_timeout: float = 15.0  # gap max entre heartbeats une fois le worker connecté
+    # API de contrôle (downlink). Token vide => API désactivée (fermé par défaut).
+    api_token: Optional[str] = None
+    api_host: str = "0.0.0.0"
+    api_port: int = 8080
+    control_timeout: float = 10.0  # attente max d'une réponse worker à une commande
 
     @classmethod
     def from_env(cls, env: Optional[Mapping[str, str]] = None) -> "Config":
@@ -42,4 +47,8 @@ class Config:
             supervisor_tick=float(src.get("MBG_SUPERVISOR_TICK", "1")),
             connect_grace=float(src.get("MBG_CONNECT_GRACE", "45")),
             alive_timeout=float(src.get("MBG_ALIVE_TIMEOUT", "15")),
+            api_token=src.get("MBG_API_TOKEN") or None,
+            api_host=src.get("MBG_API_HOST", "0.0.0.0"),
+            api_port=int(src.get("MBG_API_PORT", "8080")),
+            control_timeout=float(src.get("MBG_CONTROL_TIMEOUT", "10")),
         )

@@ -32,8 +32,14 @@ def run_one_session(
     should_continue: Callable[[], bool],
     *,
     sleep: Callable[[float], None] = time.sleep,
+    commands=None,
 ) -> int:
-    """Établit broker + BLE, relaie jusqu'au décrochage. Renvoie le nb de paquets relayés."""
+    """Établit broker + BLE, relaie jusqu'au décrochage. Renvoie le nb de paquets relayés.
+
+    `commands` (optionnel) : canal downlink avec `drain()`/`reply(id, result)`. À chaque
+    poll, les commandes en attente sont exécutées via `link.send()` (write BLE). Un write
+    qui gèle bloque le poll → plus de heartbeat → le superviseur SIGKILL le worker.
+    """
     publisher = publisher_factory()
     publisher.connect()
     proxy = Proxy(publisher)
@@ -45,6 +51,9 @@ def run_one_session(
         if lost.is_set() or not link.is_alive():
             log.warning("lien BLE perdu (%d relayés)", proxy.forwarded)
             break
+        if commands is not None:
+            for cmd in commands.drain():
+                commands.reply(cmd["id"], link.send(cmd))
         heartbeat()
         sleep(config.poll_interval)
     log.info("session terminée (%d relayés, %d erreurs)", proxy.forwarded, proxy.errors)

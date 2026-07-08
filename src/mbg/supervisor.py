@@ -6,20 +6,24 @@ Il ne peut donc pas geler → il nourrit le watchdog systemd en continu (celui-c
 ne relance que si le PARENT meurt). Il surveille le heartbeat du worker : worker
 sorti (os._exit sur drop) → respawn ; worker figé (heartbeat stagnant) → SIGKILL
 → respawn. Backoff plafonné, remis à zéro après un worker qui s'est connecté.
+Il expose `submit()` (thread-safe) pour l'API de contrôle, et lance le serveur
+HTTP (thread) si un `serve` est fourni.
 """
 from __future__ import annotations
 
 import logging
+import threading
 import time
-from typing import Callable
+from typing import Any, Callable, Dict, Optional
 
 from .config import Config
 from .systemd_notify import sd_notify
 
 log = logging.getLogger("mbg.supervisor")
 
-Spawn = Callable[[], object]  # () -> WorkerHandle (beats/is_alive/kill/join)
+Spawn = Callable[[], object]  # () -> WorkerHandle (beats/is_alive/kill/join/submit)
 Notify = Callable[[str], bool]
+Serve = Callable[[Callable, Callable], None]  # (submit, should_run) -> bloque jusqu'à should_run False
 
 
 class Supervisor:
@@ -31,27 +35,57 @@ class Supervisor:
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
         notify: Notify = sd_notify,
+        serve: Optional[Serve] = None,
     ) -> None:
         self._config = config
         self._spawn = spawn
         self._sleep = sleep
         self._clock = clock
         self._notify = notify
+        self._serve = serve
+        self._lock = threading.Lock()
+        self._current = None  # worker courant, exposé à l'API
 
+    # --- API de contrôle (appelé depuis le thread serveur) ---
+    def submit(self, command: Dict[str, Any], timeout: float) -> Dict[str, Any]:
+        with self._lock:
+            worker = self._current
+        if worker is None or worker.beats() <= 0:
+            return {"ok": False, "error": "aucun worker connecté"}
+        return worker.submit(command, timeout)
+
+    def _set_current(self, worker) -> None:
+        with self._lock:
+            self._current = worker
+
+    # --- Boucle de supervision ---
     def run(self, should_continue: Callable[[], bool]) -> None:
         self._notify("READY=1")
-        delay = self._config.reconnect_delay
-        while should_continue():
-            worker = self._spawn()
-            productive = self._supervise(worker, should_continue)
-            self._stop_worker(worker)
-            if not should_continue():
-                break  # arrêt demandé
-            if productive:  # le worker s'était connecté -> on repart au délai de base
-                delay = self._config.reconnect_delay
-            log.info("respawn du worker dans %ss", delay)
-            self._sleep(delay)
-            delay = min(delay * 2, self._config.max_reconnect_delay)
+        server_stop = threading.Event()
+        if self._serve is not None:
+            threading.Thread(
+                target=self._serve,
+                args=(self.submit, lambda: not server_stop.is_set()),
+                name="mbg-api",
+                daemon=True,
+            ).start()
+        try:
+            delay = self._config.reconnect_delay
+            while should_continue():
+                worker = self._spawn()
+                self._set_current(worker)
+                productive = self._supervise(worker, should_continue)
+                self._stop_worker(worker)
+                self._set_current(None)
+                if not should_continue():
+                    break  # arrêt demandé
+                if productive:  # le worker s'était connecté -> on repart au délai de base
+                    delay = self._config.reconnect_delay
+                log.info("respawn du worker dans %ss", delay)
+                self._sleep(delay)
+                delay = min(delay * 2, self._config.max_reconnect_delay)
+        finally:
+            server_stop.set()
 
     def _supervise(self, worker, should_continue: Callable[[], bool]) -> bool:
         """Surveille jusqu'à fin/gel. Renvoie True si le worker s'était connecté (beats>0)."""
@@ -67,7 +101,6 @@ class Supervisor:
                 last_beats = beats
                 last_progress = self._clock()
             else:
-                # Pas de heartbeat : grâce longue tant que non connecté, courte ensuite.
                 grace = self._config.alive_timeout if beats > 0 else self._config.connect_grace
                 if self._clock() - last_progress > grace:
                     log.warning("worker figé (%s) — SIGKILL", "connecté" if beats > 0 else "connexion")

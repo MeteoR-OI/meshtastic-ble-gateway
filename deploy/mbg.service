@@ -24,6 +24,11 @@ Environment=MBG_BROKER_PORT=1883
 # Backoff de reconnexion : initial / plafond (optionnel, défauts 5 / 30 s).
 # Environment=MBG_RECONNECT_DELAY=5
 # Environment=MBG_MAX_RECONNECT_DELAY=30
+# API de contrôle (downlink) — décommenter + définir un token pour l'activer.
+# SECRET : ne pas commiter. Écouter sur le LAN/VPN ; port à ouvrir au pare-feu.
+# Environment=MBG_API_TOKEN=change-me
+# Environment=MBG_API_HOST=0.0.0.0
+# Environment=MBG_API_PORT=8080
 ExecStart=/opt/meshtastic-ble-gateway/.venv/bin/python -m mbg
 # BLE 24/7 peu fiable : on relance toujours (le code reconnecte déjà en interne).
 Restart=always

@@ -25,8 +25,20 @@ MeshForge consomme.
 |---------|---------|------|
 | **PoC** | Client Proxy over BLE, validé sur T114 réel (n'émet que du `/e/`) | ✅ `poc/` |
 | **V0.1** | Passerelle durcie (`src/mbg/`, tests 100 %, CI, Docker, systemd) — déploiement RPi | ✅ |
-| **V0.2** | Monitoring : stockage local SQLite des infos node (base de la « sonde ») | à venir |
-| **V0.3** | Paliers batterie + duty-cycle du lien BLE | à venir |
+| **V0.2** | API de contrôle / downlink (envoi texte, télémétrie, admin node) | ✅ |
+| **V0.3** | Monitoring : stockage local SQLite des infos node (base de la « sonde ») | à venir |
+| **V0.4** | Paliers batterie + duty-cycle du lien BLE | à venir |
+
+## API de contrôle (downlink)
+
+Puisque la passerelle **monopolise le BLE** (1 client à la fois), elle est le seul moyen
+de parler au node pendant qu'elle tourne. Une **API HTTP à token** (activée si
+`MBG_API_TOKEN` défini) permet d'**envoyer du texte** (canal public ou privé), **de la
+télémétrie**, et **d'administrer le node** (rôle, intervalles…). Détails, endpoints et
+sécurité : voir [`deploy/README.md`](deploy/README.md).
+
+Les commandes passent par le worker (écriture BLE) ; un write qui gèle est absorbé par
+l'isolation (worker SIGKILL → 503/504). C'est le seul point qui **rompt le « receive-only »**.
 
 ## Lancer & configurer (V0.1)
 

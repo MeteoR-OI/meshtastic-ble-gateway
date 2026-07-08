@@ -153,6 +153,29 @@ def test_default_liveness_fail_open_when_introspection_missing():
     assert default_liveness(SimpleNamespace()) is True  # pas de .client -> fail-open
 
 
+def test_send_delegates_to_executor():
+    seen = {}
+
+    def fake_executor(iface, command):
+        seen["iface"] = iface
+        seen["command"] = command
+        return {"ok": True, "detail": "envoyé"}
+
+    link = MeshtasticNodeLink(
+        "addr",
+        lambda m: None,
+        interface_factory=FakeIface,
+        subscribe=lambda h, t: None,
+        unsubscribe=lambda h, t: None,
+        executor=fake_executor,
+    )
+    link.open()
+    result = link.send({"type": "text", "text": "hi"})
+    assert result == {"ok": True, "detail": "envoyé"}
+    assert seen["command"] == {"type": "text", "text": "hi"}
+    assert isinstance(seen["iface"], FakeIface)
+
+
 def test_default_interface_factory(monkeypatch):
     made = {}
 

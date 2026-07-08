@@ -48,8 +48,15 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
   → respawn si sorti / **SIGKILL** si figé → backoff plafonné + reset si connecté. Nourrit
   le watchdog systemd (`sd_notify`). Testé avec un faux spawn (aucun vrai process).
 - `systemd_notify.py` — `sd_notify` (watchdog, sans dépendance).
+- `control.py` — `execute_command(iface, command)` : traduit une commande (text/telemetry/
+  admin) en appel meshtastic. Ne lève jamais. Whitelist admin extensible.
+- `api.py` — `handle_request(...)` **pur** (auth token + routage) + `serve(...)` (adaptateur
+  `http.server`, pragma/intégration). API downlink OPT-IN (token).
 - `__main__.py` — CLI. **L'ENV est la base de la config, la CLI override.** Câble le
-  superviseur avec `spawn_worker` + `get_context("fork")`.
+  superviseur avec `spawn_worker` + `get_context("fork")` + `_build_serve` (API si token).
+- **Downlink** : API (thread du superviseur) → `Supervisor.submit` (worker connecté sinon
+  503) → queue → worker → `link.send()` → `control.execute_command`. Un write qui gèle →
+  worker SIGKILL (isolation). C'est le SEUL point qui rompt le « receive-only ».
 
 ## Config : ENV = base, CLI = override
 
@@ -71,9 +78,10 @@ Les arguments CLI ne servent qu'en usage manuel/PoC et priment s'ils sont fourni
 
 ## Roadmap
 
-- **V0.1** (fait) : passerelle (forward opaque + résilience BLE).
-- **V0.2** : monitoring — stockage SQLite local des infos node (base de la « sonde »).
-- **V0.3** : paliers batterie + duty-cycle du lien BLE (seuils dans le README).
+- **V0.1** (fait) : passerelle (forward opaque + résilience par isolation de process).
+- **V0.2** (fait) : API de contrôle / downlink (texte, télémétrie, admin node).
+- **V0.3** : monitoring — stockage SQLite local des infos node (base de la « sonde »).
+- **V0.4** : paliers batterie + duty-cycle du lien BLE (seuils dans le README).
 
 ## Conventions
 

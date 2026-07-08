@@ -74,6 +74,43 @@ def test_forwards_messages():
     assert len(pub.published) == 1
 
 
+class FakeCommands:
+    def __init__(self, batches):
+        self.batches = list(batches)
+        self.replies = []
+
+    def drain(self):
+        return self.batches.pop(0) if self.batches else []
+
+    def reply(self, cmd_id, result):
+        self.replies.append((cmd_id, result))
+
+
+def test_command_pump_executes_and_replies():
+    pub = FakePublisher()
+    box = {}
+
+    def nf(addr, cb, on_lost):
+        box["link"] = FakeNodeLink(addr, cb)
+        return box["link"]
+
+    # 1er poll : une commande ; 2e poll : rien (drain vide) ; puis décrochage.
+    cmds = FakeCommands([[{"id": 1, "type": "text"}], []])
+    step = {"n": 0}
+
+    def sleep_(s):
+        step["n"] += 1
+        if step["n"] == 2:
+            box["link"].alive = False
+
+    run_one_session(
+        Config(poll_interval=0.5), lambda: pub, nf, lambda: None,
+        seq([True, True, True]), sleep=sleep_, commands=cmds,
+    )
+    assert box["link"].sent == [{"id": 1, "type": "text"}]  # commande exécutée via link.send
+    assert cmds.replies == [(1, {"ok": True})]  # résultat renvoyé
+
+
 def test_stops_when_should_continue_false():
     pub = FakePublisher()
     box = {}

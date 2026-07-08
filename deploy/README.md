@@ -80,6 +80,31 @@ journalctl -u mbg -f
 | `MBG_SUPERVISOR_TICK` | `1` | cadence de surveillance du superviseur (s) |
 | `MBG_CONNECT_GRACE` | `45` | délai toléré sans heartbeat pendant la connexion BLE (s) |
 | `MBG_ALIVE_TIMEOUT` | `15` | gap max entre heartbeats une fois le worker connecté (s) |
+| `MBG_API_TOKEN` | – | **token** de l'API de contrôle. Vide = **API désactivée** (défaut) |
+| `MBG_API_HOST` | `0.0.0.0` | interface d'écoute de l'API (ex. `127.0.0.1` pour localhost) |
+| `MBG_API_PORT` | `8080` | port de l'API |
+| `MBG_CONTROL_TIMEOUT` | `10` | attente max d'une réponse worker à une commande (s) |
+
+## API de contrôle (downlink) — optionnelle
+
+Activée uniquement si `MBG_API_TOKEN` est défini. Auth par en-tête `X-API-Token`.
+Sécurité v1 : token + bind LAN/VPN (durcissement IP/localhost à venir). ⚠️ Ouvre un
+chemin d'écriture BLE ; un write qui gèle est absorbé par l'isolation (worker SIGKILL).
+
+```bash
+TOKEN=... ; BASE=http://<rpi>:8080
+# message texte sur un canal (nom ou index) :
+curl -H "X-API-Token: $TOKEN" -d '{"text":"alerte","channel":"Fr_Balise"}' $BASE/send/text
+# télémétrie :
+curl -H "X-API-Token: $TOKEN" -d '{}' $BASE/send/telemetry
+# admin (rôle, intervalles…) :
+curl -H "X-API-Token: $TOKEN" -d '{"setting":"position_broadcast_secs","value":43200}' $BASE/admin
+curl -H "X-API-Token: $TOKEN" $BASE/health
+```
+
+Réponses : `200` ok, `401` token invalide, `503` aucun worker connecté, `504` timeout
+worker, `400` commande invalide. Réglages admin : `role`, `position_broadcast_secs`,
+`gps_mode`, `device_update_interval` (extensible dans `src/mbg/control.py`).
 
 > **Archi** : le service lance un **superviseur** qui fait tourner le BLE dans un
 > **worker (sous-processus) jetable**. Superviseur figé impossible (aucun BLE) → il nourrit

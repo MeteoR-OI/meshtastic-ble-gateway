@@ -9,11 +9,26 @@ import multiprocessing
 import signal
 from typing import Optional, Sequence
 
+from . import api
 from .config import Config
 from .process_backend import spawn_worker
 from .supervisor import Supervisor
 
 log = logging.getLogger("mbg")
+
+
+def _build_serve(config: Config):
+    """Renvoie un `serve(submit, should_run)` pour l'API, ou None si pas de token."""
+    if not config.api_token:
+        return None
+
+    def serve(submit, should_run):
+        api.serve(
+            config.api_host, config.api_port, config.api_token,
+            config.control_timeout, submit, should_run,
+        )
+
+    return serve
 
 
 def build_parser(defaults: Config) -> argparse.ArgumentParser:
@@ -49,12 +64,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         supervisor_tick=env_config.supervisor_tick,
         connect_grace=env_config.connect_grace,
         alive_timeout=env_config.alive_timeout,
+        api_token=env_config.api_token,
+        api_host=env_config.api_host,
+        api_port=env_config.api_port,
+        control_timeout=env_config.control_timeout,
     )
 
     # Le BLE tourne dans un sous-processus jetable ; le superviseur (ce process) ne
-    # touche jamais au BLE, donc ne fige jamais.
+    # touche jamais au BLE, donc ne fige jamais. L'API de contrôle (si token) tourne
+    # dans un thread du superviseur.
     ctx = multiprocessing.get_context("fork")
-    supervisor = Supervisor(config, lambda: spawn_worker(config, ctx))
+    supervisor = Supervisor(
+        config, lambda: spawn_worker(config, ctx), serve=_build_serve(config)
+    )
 
     stop = {"flag": False}
 
