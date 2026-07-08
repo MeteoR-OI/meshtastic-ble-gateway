@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import Callable
+from typing import Callable, Optional
 
 from .config import Config
 from .proxy import Proxy
@@ -33,6 +33,7 @@ def run_one_session(
     *,
     sleep: Callable[[float], None] = time.sleep,
     commands=None,
+    monitor: Optional[Callable[[object], None]] = None,
 ) -> int:
     """Établit broker + BLE, relaie jusqu'au décrochage. Renvoie le nb de paquets relayés.
 
@@ -46,6 +47,13 @@ def run_one_session(
     lost = threading.Event()  # armé si meshtastic émet connection.lost
     link = nodelink_factory(config.ble_address, proxy.on_proxy_message, lost.set)
     link.open()
+    # Cadence de monitoring exprimée en nombre de polls (0 = monitoring désactivé).
+    polls_per_monitor = (
+        max(1, round(config.monitor_interval / config.poll_interval))
+        if monitor is not None and config.monitor_interval > 0
+        else 0
+    )
+    poll_count = 0
     while should_continue():
         # Coupure signalée (lost) OU silencieuse (sonde de vivacité) -> on rend la main.
         if lost.is_set() or not link.is_alive():
@@ -54,6 +62,11 @@ def run_one_session(
         if commands is not None:
             for cmd in commands.drain():
                 commands.reply(cmd["id"], link.send(cmd))
+        if polls_per_monitor:
+            poll_count += 1
+            if poll_count >= polls_per_monitor:
+                poll_count = 0
+                monitor(link)
         heartbeat()
         sleep(config.poll_interval)
     log.info("session terminée (%d relayés, %d erreurs)", proxy.forwarded, proxy.errors)

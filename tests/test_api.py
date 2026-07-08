@@ -70,6 +70,47 @@ def test_unknown_method():
     assert status == 404
 
 
+def test_get_unknown_route():
+    status, _ = handle_request("GET", "/nope", _hdr("s"), "", "s", _ok)
+    assert status == 404
+
+
+class FakeMetrics:
+    def latest(self):
+        return {"node": {"battery_level": 80}, "link": {"reconnects": 3}}
+
+    def history(self, since, limit):
+        self.args = (since, limit)
+        return [{"ts": 10, "battery_level": 80}]
+
+
+def test_metrics_route():
+    status, body = handle_request("GET", "/metrics", _hdr("s"), "", "s", _ok, metrics=FakeMetrics())
+    assert status == 200 and body["node"]["battery_level"] == 80
+
+
+def test_metrics_disabled_404():
+    status, _ = handle_request("GET", "/metrics", _hdr("s"), "", "s", _ok, metrics=None)
+    assert status == 404
+
+
+def test_history_route_parses_query():
+    m = FakeMetrics()
+    status, body = handle_request("GET", "/history?since=50&limit=10", _hdr("s"), "", "s", _ok, metrics=m)
+    assert status == 200 and body["rows"][0]["battery_level"] == 80
+    assert m.args == (50.0, 10)
+
+
+def test_history_bad_query_400():
+    status, _ = handle_request("GET", "/history?since=abc", _hdr("s"), "", "s", _ok, metrics=FakeMetrics())
+    assert status == 400
+
+
+def test_history_disabled_404():
+    status, _ = handle_request("GET", "/history", _hdr("s"), "", "s", _ok, metrics=None)
+    assert status == 404
+
+
 def test_status_no_worker_503():
     status, _ = handle_request(
         "POST", "/send/telemetry", _hdr("s"), "{}", "s",

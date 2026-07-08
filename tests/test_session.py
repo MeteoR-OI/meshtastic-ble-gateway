@@ -111,6 +111,31 @@ def test_command_pump_executes_and_replies():
     assert cmds.replies == [(1, {"ok": True})]  # résultat renvoyé
 
 
+def test_monitor_called_on_cadence():
+    pub = FakePublisher()
+    box = {}
+
+    def nf(addr, cb, on_lost):
+        box["link"] = FakeNodeLink(addr, cb)
+        return box["link"]
+
+    monitored = []
+    slept = []
+
+    def sleep_(s):
+        slept.append(s)
+        if len(slept) >= 3:  # décrochage après 3 polls
+            box["link"].alive = False
+
+    # monitor_interval=1s, poll=0.5s -> monitor tous les 2 polls
+    run_one_session(
+        Config(poll_interval=0.5, monitor_interval=1.0), lambda: pub, nf, lambda: None,
+        seq([True, True, True, True]), sleep=sleep_, monitor=lambda link: monitored.append(link),
+    )
+    assert len(monitored) == 1  # déclenché une fois (au 2e poll)
+    assert monitored[0] is box["link"]
+
+
 def test_stops_when_should_continue_false():
     pub = FakePublisher()
     box = {}

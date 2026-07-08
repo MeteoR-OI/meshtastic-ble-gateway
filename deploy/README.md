@@ -84,6 +84,12 @@ journalctl -u mbg -f
 | `MBG_API_HOST` | `0.0.0.0` | interface d'écoute de l'API (ex. `127.0.0.1` pour localhost) |
 | `MBG_API_PORT` | `8080` | port de l'API |
 | `MBG_CONTROL_TIMEOUT` | `10` | attente max d'une réponse worker à une commande (s) |
+| `MBG_DB_PATH` | `metrics.db` | base SQLite des métriques (relative au WorkingDirectory) |
+| `MBG_MONITOR_INTERVAL` | `300` | cadence de relevé des métriques node (s ; `0` = monitoring off) |
+| `MBG_MONITOR_FORCE_TELEMETRY` | – | `true` = `sendTelemetry` avant chaque relevé (mesure fraîche, coûte de l'airtime) |
+| `MBG_DUMP_DIR` | – | répertoire d'export CSV (vide = pas d'export) |
+| `MBG_DUMP_INTERVAL` | `3600` | cadence export CSV + purge (s) |
+| `MBG_RETENTION_DAYS` | `0` | purge des données au-delà de N jours (`0` = pas de purge) |
 
 ## API de contrôle (downlink) — optionnelle
 
@@ -118,3 +124,21 @@ implicite (un voisin rebroadcaste le paquet). Toutes les commandes sont tracées
 > **worker (sous-processus) jetable**. Superviseur figé impossible (aucun BLE) → il nourrit
 > `WatchdogSec` en continu ; systemd ne relance que si le superviseur meurt. Voir la section
 > Résilience du README racine.
+
+## Monitoring / sonde (métriques)
+
+Activé si `MBG_MONITOR_INTERVAL > 0`. Le worker relève **la batterie fraîche** (lecture
+active `getMyNodeInfo`, contourne le broadcast 12 h), le voltage, l'utilisation canal/air,
+la position et les **voisins directs + SNR** ; le superviseur enregistre la **qualité du
+lien BLE** (reconnexions). Stockage **SQLite** (`MBG_DB_PATH`) — lisible directement par
+les scripts locaux, exposé par l'API et exporté en **CSV** (`MBG_DUMP_DIR`).
+
+```bash
+curl -H "X-API-Token: $TOKEN" $BASE/metrics                 # dernier relevé {node, link}
+curl -H "X-API-Token: $TOKEN" "$BASE/history?since=0&limit=100"   # série node_metrics
+```
+
+Créer les répertoires avec les bons droits pour l'utilisateur `mbg` :
+```bash
+sudo install -d -o mbg -g mbg /var/lib/mbg   # ex. MBG_DB_PATH=/var/lib/mbg/metrics.db, MBG_DUMP_DIR=/var/lib/mbg/csv
+```

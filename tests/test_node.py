@@ -155,6 +155,30 @@ def test_default_liveness_fail_open_when_introspection_missing():
     assert default_liveness(SimpleNamespace()) is True  # pas de .client -> fail-open
 
 
+def test_read_metrics_aggregates():
+    iface = SimpleNamespace(
+        getMyNodeInfo=lambda: {
+            "num": 9,
+            "deviceMetrics": {"batteryLevel": 80},
+            "position": {"latitude": -21.0},
+        },
+        nodesByNum={1: {"hopsAway": 0, "user": {"id": "!001"}, "snr": 5.0}},
+        client=SimpleNamespace(bleak_client=SimpleNamespace(_properties={"RSSI": -88})),
+    )
+    link = MeshtasticNodeLink(
+        "addr", lambda m: None,
+        interface_factory=lambda a: iface,
+        subscribe=lambda h, t: None,
+        unsubscribe=lambda h, t: None,
+    )
+    link.open()
+    data = link.read_metrics()
+    assert data["node"]["battery_level"] == 80
+    assert data["node"]["ble_rssi"] == -88
+    assert data["position"]["lat"] == -21.0
+    assert data["neighbors"][0]["node_id"] == "!001"
+
+
 def test_send_delegates_to_executor():
     seen = {}
 

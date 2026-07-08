@@ -33,6 +33,8 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
 
 - `config.py` — `Config` (dataclass) + `from_env()` (`MBG_*`). Champs de tuning :
   `supervisor_tick`, `connect_grace`, `alive_timeout`, `reconnect_delay`/`max_reconnect_delay`.
+  Monitoring : `db_path`, `monitor_interval` (0=off), `force_telemetry`, `dump_dir`,
+  `dump_interval`, `retention_days`.
 - `proxy.py` — `Proxy.on_proxy_message` : republie au broker, ne crashe jamais.
 - `mqtt_publisher.py` — `PahoPublisher` (adaptateur paho, `client_factory` injectable).
 - `node.py` — `MeshtasticNodeLink` : connexion BLE + pubsub (proxy + lost) + sonde
@@ -56,10 +58,21 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
   `node` s'abonne à `meshtastic.receive`, corrèle un `ROUTING_APP` entrant dont le
   `requestId` == l'id d'un paquet `want_ack` envoyé, et logue `[downlink] ACK … → reçu/échec`
   (+ timeout de repli). Broadcast = ACK implicite (ROUTING_APP from self), même chemin.
-- `api.py` — `handle_request(...)` **pur** (auth token + routage) + `serve(...)` (adaptateur
-  `http.server`, pragma/intégration). API downlink OPT-IN (token).
-- `__main__.py` — CLI. **L'ENV est la base de la config, la CLI override.** Câble le
-  superviseur avec `spawn_worker` + `get_context("fork")` + `_build_serve` (API si token).
+- `api.py` — `handle_request(...)` **pur** (auth token + routage POST downlink via `dispatch`
+  + GET monitoring via `metrics`) + `serve(...)` (adaptateur `http.server`, pragma/intégration).
+  API OPT-IN (token). GET `/metrics`, `/history` lisent le store ; POST `/send/*`, `/admin`.
+- **Monitoring / sonde (V0.3)** — `storage.py` : `MetricsStore` (SQLite stdlib, mode **WAL** →
+  2 écrivains multi-process ; tables `node_metrics`/`neighbors`/`link_quality` ; `record_*`,
+  `latest`, `history`, `prune`, `export_csv`). Connexion bornée par un context manager
+  `_conn` (toujours fermée → pas de fuite). `metrics.py` : lecteurs **purs** (`node_metrics`,
+  `position`, `neighbors` 0-hop, `ble_rssi` best-effort) depuis un fake iface. Le **worker**
+  écrit node_metrics/neighbors (monitor injecté dans `run_one_session`, cadence
+  `monitor_interval`) ; le **superviseur** écrit link_quality (compteur reconnexions) + thread
+  d'export CSV/purge. Lecture batterie ACTIVE (`getMyNodeInfo`) → contourne le broadcast 12 h.
+- `__main__.py` — CLI. **L'ENV est la base de la config, la CLI override** (via
+  `dataclasses.replace` : on n'override QUE les champs CLI → tout futur champ se propage seul,
+  fin du bug « champ oublié »). Câble le superviseur avec `spawn_worker` + `get_context("fork")`
+  + `_build_serve` (API si token) + le `MetricsStore` (si `monitor_interval > 0`).
 - **Downlink** : API (thread du superviseur) → `Supervisor.submit` (worker connecté sinon
   503) → queue → worker → `link.send()` → `control.execute_command`. Un write qui gèle →
   worker SIGKILL (isolation). C'est le SEUL point qui rompt le « receive-only ».
@@ -86,7 +99,7 @@ Les arguments CLI ne servent qu'en usage manuel/PoC et priment s'ils sont fourni
 
 - **V0.1** (fait) : passerelle (forward opaque + résilience par isolation de process).
 - **V0.2** (fait) : API de contrôle / downlink (texte, télémétrie, admin node).
-- **V0.3** : monitoring — stockage SQLite local des infos node (base de la « sonde »).
+- **V0.3** (fait) : monitoring — sonde SQLite (métriques node + qualité BLE), API + export CSV.
 - **V0.4** : paliers batterie + duty-cycle du lien BLE (seuils dans le README).
 
 ## Conventions

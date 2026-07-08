@@ -26,7 +26,7 @@ MeshForge consomme.
 | **PoC** | Client Proxy over BLE, validé sur T114 réel (n'émet que du `/e/`) | ✅ `poc/` |
 | **V0.1** | Passerelle durcie (`src/mbg/`, tests 100 %, CI, Docker, systemd) — déploiement RPi | ✅ |
 | **V0.2** | API de contrôle / downlink (envoi texte, télémétrie, admin node) | ✅ |
-| **V0.3** | Monitoring : stockage local SQLite des infos node (base de la « sonde ») | à venir |
+| **V0.3** | Monitoring : sonde SQLite (métriques node + qualité BLE), API + export CSV | ✅ |
 | **V0.4** | Paliers batterie + duty-cycle du lien BLE | à venir |
 
 ## API de contrôle (downlink)
@@ -39,6 +39,25 @@ sécurité : voir [`deploy/README.md`](deploy/README.md).
 
 Les commandes passent par le worker (écriture BLE) ; un write qui gèle est absorbé par
 l'isolation (worker SIGKILL → 503/504). C'est le seul point qui **rompt le « receive-only »**.
+
+## Monitoring / sonde (V0.3)
+
+Activée si `MBG_MONITOR_INTERVAL > 0`, la sonde historise en **SQLite local** (stdlib, zéro
+dépendance, mode WAL) les métriques du node **et** la qualité du lien BLE — base des paliers
+batterie (V0.4). Point clé : **lecture batterie ACTIVE** locale (`getMyNodeInfo`), qui
+contourne le broadcast télémétrie de 12 h du node → mesure toujours fraîche.
+
+- **Worker** (dans le sous-processus BLE) : `node_metrics` (batterie, voltage, util. canal/air,
+  uptime), `position`, `neighbors` directs + SNR. Un `getMyNodeInfo` qui gèle = worker SIGKILL
+  (même isolation que tout appel BLE). `MBG_MONITOR_FORCE_TELEMETRY=true` force un `sendTelemetry`
+  avant lecture si le firmware ne rafraîchit pas passivement.
+- **Superviseur** : `link_quality` (compteur de reconnexions — le vrai signal de qualité BLE),
+  + thread d'export **CSV** périodique (`MBG_DUMP_DIR`) et purge (`MBG_RETENTION_DAYS`).
+- **API** (même token que le contrôle) : `GET /metrics` (dernier relevé node + lien),
+  `GET /history?since=&limit=`. Consommable aussi en lisant directement le fichier SQLite.
+
+Variables (`MBG_DB_PATH`, `MBG_MONITOR_INTERVAL`, `MBG_DUMP_DIR`…) et exemples curl :
+voir [`deploy/README.md`](deploy/README.md).
 
 ## Lancer & configurer (V0.1)
 
@@ -92,7 +111,7 @@ pytest                              # unitaires, 100 % branch coverage
 docker compose -f poc/docker-compose.yml up -d && pytest tests/integration --no-cov
 ```
 
-### Paliers batterie (V0.3)
+### Paliers batterie (V0.4)
 
 | Batterie | Monitoring | Lien BLE / proxy |
 |----------|-----------|------------------|

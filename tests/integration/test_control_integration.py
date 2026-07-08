@@ -67,7 +67,7 @@ def test_real_http_server_auth():
 
     thread = threading.Thread(
         target=serve,
-        args=("127.0.0.1", port, "tok", 1.0, submit, lambda: not stop.is_set()),
+        args=("127.0.0.1", port, "tok", 1.0, submit, None, lambda: not stop.is_set()),
         daemon=True,
     )
     thread.start()

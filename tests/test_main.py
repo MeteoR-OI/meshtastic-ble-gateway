@@ -31,9 +31,10 @@ def captured_signals(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _fake_backend(monkeypatch):
-    # Évite tout vrai fork : spawn_worker renvoie un sentinel.
+    # Évite tout vrai fork / vraie base SQLite.
     monkeypatch.setattr(main_mod, "Supervisor", FakeSupervisor)
     monkeypatch.setattr(main_mod, "spawn_worker", lambda config, ctx: "WORKER")
+    monkeypatch.setattr(main_mod, "MetricsStore", lambda path: ("STORE", path))
 
 
 @pytest.mark.parametrize("extra", [[], ["-v"]])
@@ -58,6 +59,9 @@ def test_main_reads_env_without_cli_args(captured_signals, monkeypatch):
     monkeypatch.setenv("MBG_BROKER_HOST", "mqtt-mt.example")
     monkeypatch.setenv("MBG_BROKER_PORT", "1884")
     monkeypatch.setenv("MBG_ALIVE_TIMEOUT", "9")
+    monkeypatch.setenv("MBG_DB_PATH", "/data/x.db")
+    monkeypatch.setenv("MBG_MONITOR_INTERVAL", "42")
+    monkeypatch.setenv("MBG_DUMP_DIR", "/data/csv")
 
     rc = main([])  # exactement ce que fait `ExecStart=python -m mbg`
     assert rc == 0
@@ -66,7 +70,11 @@ def test_main_reads_env_without_cli_args(captured_signals, monkeypatch):
     assert cfg.ble_address == "F9:98:08:73:85:AE"
     assert cfg.broker_host == "mqtt-mt.example"
     assert cfg.broker_port == 1884
-    assert cfg.alive_timeout == 9.0  # champ de tuning propagé depuis l'ENV
+    # tuning + monitoring propagés depuis l'ENV (via dataclasses.replace)
+    assert cfg.alive_timeout == 9.0
+    assert cfg.db_path == "/data/x.db"
+    assert cfg.monitor_interval == 42.0
+    assert cfg.dump_dir == "/data/csv"
 
 
 def test_cli_args_override_env(captured_signals, monkeypatch):
@@ -84,12 +92,18 @@ def test_api_token_propagated_from_env(captured_signals, monkeypatch):
 
 
 def test_build_serve_none_without_token():
-    assert _build_serve(Config()) is None
+    assert _build_serve(Config(), None) is None
 
 
 def test_build_serve_calls_api(monkeypatch):
     called = {}
     monkeypatch.setattr(main_mod.api, "serve", lambda *a: called.setdefault("args", a))
-    serve = _build_serve(Config(api_token="t", api_host="h", api_port=9, control_timeout=3))
+    serve = _build_serve(Config(api_token="t", api_host="h", api_port=9, control_timeout=3), "METRICS")
     serve("SUBMIT", "SHOULD_RUN")
-    assert called["args"] == ("h", 9, "t", 3, "SUBMIT", "SHOULD_RUN")
+    assert called["args"] == ("h", 9, "t", 3, "SUBMIT", "METRICS", "SHOULD_RUN")
+
+
+def test_main_no_store_when_monitoring_off(captured_signals, monkeypatch):
+    monkeypatch.setenv("MBG_MONITOR_INTERVAL", "0")
+    rc = main([])
+    assert rc == 0  # store None (branche monitoring off)

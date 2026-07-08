@@ -30,6 +30,13 @@ class Config:
     api_host: str = "0.0.0.0"
     api_port: int = 8080
     control_timeout: float = 10.0  # attente max d'une réponse worker à une commande
+    # Monitoring / sonde (V0.3).
+    db_path: str = "metrics.db"  # base SQLite (relative au WorkingDirectory du service)
+    monitor_interval: float = 300.0  # cadence de relevé des métriques node (s ; 0 = off)
+    force_telemetry: bool = False  # envoyer sendTelemetry avant le relevé (mesure fraîche)
+    dump_dir: Optional[str] = None  # répertoire d'export CSV (None = pas d'export)
+    dump_interval: float = 3600.0  # cadence d'export CSV + purge (s)
+    retention_days: float = 0.0  # purge au-delà de N jours (0 = pas de purge)
 
     @classmethod
     def from_env(cls, env: Optional[Mapping[str, str]] = None) -> "Config":
@@ -51,4 +58,10 @@ class Config:
             api_host=src.get("MBG_API_HOST", "0.0.0.0"),
             api_port=int(src.get("MBG_API_PORT", "8080")),
             control_timeout=float(src.get("MBG_CONTROL_TIMEOUT", "10")),
+            db_path=src.get("MBG_DB_PATH", "metrics.db"),
+            monitor_interval=float(src.get("MBG_MONITOR_INTERVAL", "300")),
+            force_telemetry=src.get("MBG_MONITOR_FORCE_TELEMETRY", "").lower() in ("1", "true", "yes"),
+            dump_dir=src.get("MBG_DUMP_DIR") or None,
+            dump_interval=float(src.get("MBG_DUMP_INTERVAL", "3600")),
+            retention_days=float(src.get("MBG_RETENTION_DAYS", "0")),
         )
