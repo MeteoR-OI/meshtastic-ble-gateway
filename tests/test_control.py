@@ -12,7 +12,6 @@ class FakeIface:
     def __init__(self):
         self.sent_text = None
         self.want_ack = False
-        self.on_response = None
         self.telemetry = 0
         self.written = []
         self.localNode = SimpleNamespace(
@@ -30,10 +29,10 @@ class FakeIface:
     def _write(self, section):
         self.written.append(section)
 
-    def sendText(self, text, channelIndex=0, destinationId=None, wantAck=False, onResponse=None):
+    def sendText(self, text, channelIndex=0, destinationId=None, wantAck=False):
         self.sent_text = (text, channelIndex, destinationId)
         self.want_ack = wantAck
-        self.on_response = onResponse
+        return SimpleNamespace(id=999)  # paquet meshtastic (avec son id)
 
     def sendTelemetry(self):
         self.telemetry += 1
@@ -70,47 +69,17 @@ def test_text_unknown_channel():
 
 def test_text_without_want_ack():
     iface = FakeIface()
-    execute_command(iface, {"type": "text", "text": "hi", "channel": 0})
-    assert iface.want_ack is False and iface.on_response is None
+    r = execute_command(iface, {"type": "text", "text": "hi", "channel": 0})
+    assert iface.want_ack is False
+    assert "packet_id" not in r  # pas de suivi d'ACK
 
 
-def test_text_want_ack_callback_and_timeout(monkeypatch):
-    import mbg.control as control
-
-    captured = {}
-    # ne pas lancer de vrai timer : capturer le callback de timeout
-    monkeypatch.setattr(control, "_start_ack_timeout", lambda cb: captured.__setitem__("timeout", cb))
-
+def test_text_want_ack_returns_packet_id():
     iface = FakeIface()
     r = execute_command(iface, {"type": "text", "text": "hi", "channel": "meteo", "want_ack": True})
     assert r["ok"] and r["want_ack"] is True
-    assert iface.want_ack is True and callable(iface.on_response)
-
-    # 1) ACK pas encore reçu -> le timeout logue (branche "not done")
-    captured["timeout"]()
-    # 2) l'ACK arrive -> _on_ack logue et marque done
-    iface.on_response({"decoded": {"routing": {"errorReason": "NONE"}}})
-    # 3) un timeout tardif ne re-logue plus (branche "done")
-    captured["timeout"]()
-
-
-def test_ack_status_ack():
-    from mbg.control import _ack_status
-
-    assert _ack_status({"decoded": {"routing": {"errorReason": "NONE"}}}) == "reçu (ACK)"
-
-
-def test_ack_status_missing_routing_is_ack():
-    from mbg.control import _ack_status
-
-    assert _ack_status({}) == "reçu (ACK)"
-
-
-def test_ack_status_nak():
-    from mbg.control import _ack_status
-
-    s = _ack_status({"decoded": {"routing": {"errorReason": "MAX_RETRANSMIT"}}})
-    assert "échec" in s and "MAX_RETRANSMIT" in s
+    assert iface.want_ack is True
+    assert r["packet_id"] == 999  # id du paquet, pour corrélation ACK côté node
 
 
 def test_telemetry():

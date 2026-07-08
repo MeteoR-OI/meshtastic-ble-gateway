@@ -49,7 +49,13 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
   le watchdog systemd (`sd_notify`). Testé avec un faux spawn (aucun vrai process).
 - `systemd_notify.py` — `sd_notify` (watchdog, sans dépendance).
 - `control.py` — `execute_command(iface, command)` : traduit une commande (text/telemetry/
-  admin) en appel meshtastic. Ne lève jamais. Whitelist admin extensible.
+  admin) en appel meshtastic. Ne lève jamais. Whitelist admin extensible. Pour `want_ack`,
+  renvoie `packet_id` (le node corrèle l'ACK).
+- **ACK radio (want_ack)** : `sendText(onResponse=…)` est **CASSÉ** en meshtastic BLE 2.7.10
+  (le handler ne matche pas le requestId — prouvé py-spy/capture). ⇒ on ne s'y fie PAS :
+  `node` s'abonne à `meshtastic.receive`, corrèle un `ROUTING_APP` entrant dont le
+  `requestId` == l'id d'un paquet `want_ack` envoyé, et logue `[downlink] ACK … → reçu/échec`
+  (+ timeout de repli). Broadcast = ACK implicite (ROUTING_APP from self), même chemin.
 - `api.py` — `handle_request(...)` **pur** (auth token + routage) + `serve(...)` (adaptateur
   `http.server`, pragma/intégration). API downlink OPT-IN (token).
 - `__main__.py` — CLI. **L'ENV est la base de la config, la CLI override.** Câble le

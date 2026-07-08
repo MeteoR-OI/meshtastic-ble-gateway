@@ -10,7 +10,8 @@ On s'y abonne et on route vers un callback. Toutes les dépendances externes
 from __future__ import annotations
 
 import logging
-from typing import Callable, Optional
+import threading
+from typing import Any, Callable, Optional
 
 from .control import execute_command
 
@@ -18,9 +19,23 @@ log = logging.getLogger("mbg.node")
 
 PROXY_TOPIC = "meshtastic.mqttclientproxymessage"
 CONNECTION_LOST_TOPIC = "meshtastic.connection.lost"
+RECEIVE_TOPIC = "meshtastic.receive"  # tous les paquets décodés reçus
+ROUTING_PORTNUM = "ROUTING_APP"  # portnum d'un accusé (ACK/NAK)
+ACK_TIMEOUT = 60.0  # au-delà, on logue un « timeout » d'accusé radio (want_ack)
 
 OnProxy = Callable[[object], None]
 OnLost = Callable[[], None]
+
+
+def _ack_status(packet: Any) -> str:
+    """Interprète un paquet ROUTING en accusé radio lisible."""
+    try:
+        reason = packet["decoded"]["routing"]["errorReason"]
+    except (KeyError, TypeError):
+        return "reçu (ACK)"  # pas d'erreur de routage -> livré
+    if reason in (0, "NONE", None):
+        return "reçu (ACK)"
+    return f"échec ({reason})"
 
 
 def default_interface_factory(address: str):
@@ -71,6 +86,7 @@ class MeshtasticNodeLink:
         unsubscribe: Callable[[Callable, str], None] = default_unsubscribe,
         liveness: Callable[[object], bool] = default_liveness,
         executor: Callable[[object, dict], dict] = execute_command,
+        timer_factory: Callable[[float, Callable[[], None]], Any] = threading.Timer,
     ) -> None:
         self._address = address
         self._on_proxy = on_proxy
@@ -80,7 +96,10 @@ class MeshtasticNodeLink:
         self._unsubscribe = unsubscribe
         self._liveness = liveness
         self._executor = executor
+        self._timer_factory = timer_factory
         self._iface = None
+        self._pending_acks = {}  # packet_id -> (label, timer) pour want_ack
+        self._ack_lock = threading.Lock()
 
     def _handler(self, proxymessage=None, interface=None) -> None:
         """Signature attendue par le pubsub meshtastic (kwargs nommés)."""
@@ -99,18 +118,55 @@ class MeshtasticNodeLink:
         return self._liveness(self._iface)
 
     def send(self, command: dict) -> dict:
-        """Exécute une commande downlink sur l'interface (write BLE). Voir `control`."""
-        return self._executor(self._iface, command)
+        """Exécute une commande downlink (write BLE). Voir `control`. Suit l'ACK si demandé."""
+        result = self._executor(self._iface, command)
+        packet_id = result.get("packet_id")
+        if command.get("want_ack") and packet_id is not None:
+            self._track_ack(packet_id, f"canal={command.get('channel')}")
+        return result
+
+    def _track_ack(self, packet_id, label: str) -> None:
+        """Arme l'attente d'un ACK radio (ROUTING_APP entrant) + un timeout de repli."""
+        timer = self._timer_factory(ACK_TIMEOUT, lambda: self._ack_timeout(packet_id, label))
+        timer.daemon = True
+        with self._ack_lock:
+            self._pending_acks[packet_id] = (label, timer)
+        timer.start()
+
+    def _ack_timeout(self, packet_id, label: str) -> None:
+        with self._ack_lock:
+            present = self._pending_acks.pop(packet_id, None)
+        if present is not None:
+            log.info("[downlink] ACK %s → timeout (aucun accusé reçu)", label)
+
+    def _handler_receive(self, packet=None, interface=None) -> None:
+        """ROUTING_APP dont le requestId matche un want_ack -> accusé radio logué."""
+        decoded = (packet or {}).get("decoded") or {}
+        if decoded.get("portnum") != ROUTING_PORTNUM:
+            return
+        with self._ack_lock:
+            entry = self._pending_acks.pop(decoded.get("requestId"), None)
+        if entry is None:
+            return
+        label, timer = entry
+        timer.cancel()
+        log.info("[downlink] ACK %s → %s", label, _ack_status(packet))
 
     def open(self) -> None:
         self._subscribe(self._handler, PROXY_TOPIC)
         self._subscribe(self._handler_lost, CONNECTION_LOST_TOPIC)
+        self._subscribe(self._handler_receive, RECEIVE_TOPIC)
         self._iface = self._interface_factory(self._address)
         log.info("node connecté (BLE %s)", self._address)
 
     def close(self) -> None:
         self._unsubscribe(self._handler, PROXY_TOPIC)
         self._unsubscribe(self._handler_lost, CONNECTION_LOST_TOPIC)
+        self._unsubscribe(self._handler_receive, RECEIVE_TOPIC)
+        with self._ack_lock:
+            for _label, timer in self._pending_acks.values():
+                timer.cancel()
+            self._pending_acks.clear()
         if self._iface is not None:
             self._iface.close()
             self._iface = None

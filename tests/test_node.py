@@ -8,7 +8,9 @@ from fakes import FakeIface
 from mbg.node import (
     CONNECTION_LOST_TOPIC,
     PROXY_TOPIC,
+    RECEIVE_TOPIC,
     MeshtasticNodeLink,
+    _ack_status,
     default_interface_factory,
     default_liveness,
     default_subscribe,
@@ -87,7 +89,7 @@ def test_close_without_open_skips_iface():
         unsubscribe=lambda h, t: unsub.append(t),
     )
     link.close()  # branche _iface is None
-    assert unsub == [PROXY_TOPIC, CONNECTION_LOST_TOPIC]
+    assert unsub == [PROXY_TOPIC, CONNECTION_LOST_TOPIC, RECEIVE_TOPIC]
 
 
 def test_handler_lost_routes_to_on_lost():
@@ -174,6 +176,100 @@ def test_send_delegates_to_executor():
     assert result == {"ok": True, "detail": "envoyé"}
     assert seen["command"] == {"type": "text", "text": "hi"}
     assert isinstance(seen["iface"], FakeIface)
+
+
+class FakeTimer:
+    def __init__(self, interval, fn):
+        self.interval = interval
+        self.fn = fn
+        self.started = False
+        self.cancelled = False
+        self.daemon = False
+
+    def start(self):
+        self.started = True
+
+    def cancel(self):
+        self.cancelled = True
+
+
+def _ack_link(executor, timers, captured):
+    return MeshtasticNodeLink(
+        "addr",
+        lambda m: None,
+        interface_factory=FakeIface,
+        subscribe=lambda h, t: captured.__setitem__(t, h),
+        unsubscribe=lambda h, t: None,
+        executor=executor,
+        timer_factory=lambda interval, fn: timers.append(FakeTimer(interval, fn)) or timers[-1],
+    )
+
+
+def test_want_ack_tracked_then_acked():
+    timers, captured = [], {}
+    link = _ack_link(lambda i, c: {"ok": True, "want_ack": True, "packet_id": 42}, timers, captured)
+    link.open()
+    r = link.send({"type": "text", "channel": "Fr_Balise", "want_ack": True})
+    assert r["ok"] and timers[0].started is True
+    # ROUTING_APP avec le bon requestId -> ACK logué + timer annulé
+    captured[RECEIVE_TOPIC](
+        packet={"decoded": {"portnum": "ROUTING_APP", "requestId": 42, "routing": {"errorReason": "NONE"}}}
+    )
+    assert timers[0].cancelled is True
+
+
+def test_receive_ignores_non_routing():
+    timers, captured = [], {}
+    link = _ack_link(lambda i, c: {"ok": True}, timers, captured)
+    link.open()
+    captured[RECEIVE_TOPIC](packet={"decoded": {"portnum": "TEXT_MESSAGE_APP"}})  # ignoré
+
+
+def test_receive_unknown_request_id_ignored():
+    timers, captured = [], {}
+    link = _ack_link(lambda i, c: {"ok": True}, timers, captured)
+    link.open()
+    captured[RECEIVE_TOPIC](packet={"decoded": {"portnum": "ROUTING_APP", "requestId": 999}})  # non suivi
+
+
+def test_ack_timeout_logs_then_noop():
+    timers, captured = [], {}
+    link = _ack_link(lambda i, c: {"ok": True, "want_ack": True, "packet_id": 7}, timers, captured)
+    link.open()
+    link.send({"type": "text", "channel": "Fr_Balise", "want_ack": True})
+    timers[0].fn()  # timeout -> logue + retire
+    timers[0].fn()  # déjà retiré -> no-op
+
+
+def test_send_without_want_ack_no_tracking():
+    timers, captured = [], {}
+    link = _ack_link(lambda i, c: {"ok": True}, timers, captured)
+    link.open()
+    link.send({"type": "telemetry"})
+    assert timers == []
+
+
+def test_send_want_ack_but_no_packet_id():
+    timers, captured = [], {}
+    link = _ack_link(lambda i, c: {"ok": True, "want_ack": True, "packet_id": None}, timers, captured)
+    link.open()
+    link.send({"type": "text", "want_ack": True})
+    assert timers == []  # pas d'id -> pas de suivi
+
+
+def test_close_cancels_pending_acks():
+    timers, captured = [], {}
+    link = _ack_link(lambda i, c: {"ok": True, "want_ack": True, "packet_id": 5}, timers, captured)
+    link.open()
+    link.send({"type": "text", "channel": "x", "want_ack": True})
+    link.close()
+    assert timers[0].cancelled is True
+
+
+def test_ack_status_helper():
+    assert _ack_status({"decoded": {"routing": {"errorReason": "NONE"}}}) == "reçu (ACK)"
+    assert _ack_status({}) == "reçu (ACK)"
+    assert "échec" in _ack_status({"decoded": {"routing": {"errorReason": "MAX_RETRANSMIT"}}})
 
 
 def test_default_interface_factory(monkeypatch):

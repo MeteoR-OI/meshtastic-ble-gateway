@@ -10,19 +10,7 @@ superviseur le SIGKILL (comportement voulu de l'isolation).
 """
 from __future__ import annotations
 
-import logging
-import threading
 from typing import Any, Callable, Dict, Tuple
-
-log = logging.getLogger("mbg.control")
-
-ACK_TIMEOUT = 60.0  # au-delà, on logue un « timeout » d'accusé radio (want_ack)
-
-
-def _start_ack_timeout(callback: Callable[[], None]) -> None:  # pragma: no cover — timer/thread OS
-    timer = threading.Timer(ACK_TIMEOUT, callback)
-    timer.daemon = True
-    timer.start()
 
 
 def _coerce_int(value: Any) -> int:
@@ -68,17 +56,6 @@ def _resolve_channel(iface, channel: Any) -> int:
     raise ValueError(f"canal inconnu: {channel}")
 
 
-def _ack_status(response: Any) -> str:
-    """Interprète un paquet de réponse routing en accusé radio lisible."""
-    try:
-        reason = response["decoded"]["routing"]["errorReason"]
-    except (KeyError, TypeError):
-        return "reçu (ACK)"  # pas d'erreur de routage -> livré
-    if reason in (0, "NONE", None):
-        return "reçu (ACK)"
-    return f"échec ({reason})"
-
-
 def _send_text(iface, command: Dict[str, Any]) -> Dict[str, Any]:
     text = command.get("text")
     if not text:
@@ -90,25 +67,15 @@ def _send_text(iface, command: Dict[str, Any]) -> Dict[str, Any]:
         kwargs["destinationId"] = dest
     want_ack = bool(command.get("want_ack"))
     if want_ack:
-        # ACK radio ASYNCHRONE : logué plus tard (broadcast = ACK implicite si un voisin
-        # rebroadcaste). N'apparaît PAS dans la réponse HTTP. Timeout de repli pour ne
-        # jamais rester silencieux.
-        label = f"canal={command.get('channel')}"
-        acked = {"done": False}
-
-        def _on_ack(response):
-            acked["done"] = True
-            log.info("[downlink] ACK %s → %s", label, _ack_status(response))
-
-        def _on_timeout():
-            if not acked["done"]:
-                log.info("[downlink] ACK %s → timeout (aucun accusé reçu)", label)
-
-        _start_ack_timeout(_on_timeout)
-        kwargs["wantAck"] = True
-        kwargs["onResponse"] = _on_ack
-    iface.sendText(text, **kwargs)
-    return {"ok": True, "detail": f"texte envoyé (canal {channel_index})", "want_ack": want_ack}
+        kwargs["wantAck"] = True  # demande l'ACK au firmware ; corrélé côté node (receive)
+    packet = iface.sendText(text, **kwargs)
+    result: Dict[str, Any] = {"ok": True, "detail": f"texte envoyé (canal {channel_index})"}
+    if want_ack:
+        # L'ACK n'est PAS fiable via onResponse (cassé en meshtastic BLE 2.7.10) : on
+        # remonte l'id du paquet, le node corrèle le ROUTING_APP entrant (voir node.py).
+        result["want_ack"] = True
+        result["packet_id"] = getattr(packet, "id", None)
+    return result
 
 
 def _apply_admin(iface, setting: Any, value: Any) -> Dict[str, Any]:
