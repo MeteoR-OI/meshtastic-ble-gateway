@@ -26,6 +26,18 @@ Notify = Callable[[str], bool]
 Serve = Callable[[Callable, Callable], None]  # (submit, should_run) -> bloque jusqu'à should_run False
 
 
+def _describe(command: Dict[str, Any]) -> str:
+    """Résumé concis d'une commande pour le journal d'audit (sans secret)."""
+    ctype = command.get("type")
+    if ctype == "text":
+        text = str(command.get("text", ""))
+        snippet = text if len(text) <= 40 else text[:37] + "…"
+        return f"texte canal={command.get('channel')} «{snippet}»"
+    if ctype == "admin":
+        return f"admin {command.get('setting')}={command.get('value')}"
+    return str(ctype)
+
+
 class Supervisor:
     def __init__(
         self,
@@ -50,9 +62,14 @@ class Supervisor:
     def submit(self, command: Dict[str, Any], timeout: float) -> Dict[str, Any]:
         with self._lock:
             worker = self._current
+        label = _describe(command)  # audit INFO ; jamais de token (absent de la commande)
         if worker is None or worker.beats() <= 0:
+            log.info("[downlink] %s refusé : aucun worker connecté", label)
             return {"ok": False, "error": "aucun worker connecté"}
-        return worker.submit(command, timeout)
+        result = worker.submit(command, timeout)
+        status = "ok" if result.get("ok") else result.get("error")
+        log.info("[downlink] %s → %s (id=%s)", label, status, result.get("id"))
+        return result
 
     def _set_current(self, worker) -> None:
         with self._lock:

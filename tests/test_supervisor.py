@@ -186,6 +186,23 @@ def test_submit_delegates_to_connected_worker():
     assert worker.submitted == ({"type": "text"}, 2)
 
 
+def test_submit_long_text_is_truncated_in_audit():
+    sup = _quiet_sup()
+    sup._set_current(FakeWorkerHandle(beat_value=5))
+    # texte > 40 caractères -> branche de troncature du résumé d'audit
+    r = sup.submit({"type": "text", "text": "x" * 80, "channel": "Fr_Balise"}, 1)
+    assert r["ok"] is True
+
+
+def test_submit_admin_command_and_error_result():
+    sup = _quiet_sup()
+    worker = FakeWorkerHandle(beat_value=5)
+    worker.submit_result = {"ok": False, "error": "boom"}  # branche résultat-erreur
+    sup._set_current(worker)
+    r = sup.submit({"type": "admin", "setting": "role", "value": "ROUTER"}, 1)  # branche _describe admin
+    assert r["ok"] is False
+
+
 def test_run_starts_api_server_thread():
     done = threading.Event()
     captured = {}
