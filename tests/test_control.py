@@ -74,13 +74,24 @@ def test_text_without_want_ack():
     assert iface.want_ack is False and iface.on_response is None
 
 
-def test_text_want_ack_registers_callback():
+def test_text_want_ack_callback_and_timeout(monkeypatch):
+    import mbg.control as control
+
+    captured = {}
+    # ne pas lancer de vrai timer : capturer le callback de timeout
+    monkeypatch.setattr(control, "_start_ack_timeout", lambda cb: captured.__setitem__("timeout", cb))
+
     iface = FakeIface()
     r = execute_command(iface, {"type": "text", "text": "hi", "channel": "meteo", "want_ack": True})
     assert r["ok"] and r["want_ack"] is True
     assert iface.want_ack is True and callable(iface.on_response)
-    # invoquer le callback ACK (asynchrone en vrai) ne doit pas lever
+
+    # 1) ACK pas encore reçu -> le timeout logue (branche "not done")
+    captured["timeout"]()
+    # 2) l'ACK arrive -> _on_ack logue et marque done
     iface.on_response({"decoded": {"routing": {"errorReason": "NONE"}}})
+    # 3) un timeout tardif ne re-logue plus (branche "done")
+    captured["timeout"]()
 
 
 def test_ack_status_ack():

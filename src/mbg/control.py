@@ -11,9 +11,18 @@ superviseur le SIGKILL (comportement voulu de l'isolation).
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Callable, Dict, Tuple
 
 log = logging.getLogger("mbg.control")
+
+ACK_TIMEOUT = 60.0  # au-delà, on logue un « timeout » d'accusé radio (want_ack)
+
+
+def _start_ack_timeout(callback: Callable[[], None]) -> None:  # pragma: no cover — timer/thread OS
+    timer = threading.Timer(ACK_TIMEOUT, callback)
+    timer.daemon = True
+    timer.start()
 
 
 def _coerce_int(value: Any) -> int:
@@ -82,12 +91,20 @@ def _send_text(iface, command: Dict[str, Any]) -> Dict[str, Any]:
     want_ack = bool(command.get("want_ack"))
     if want_ack:
         # ACK radio ASYNCHRONE : logué plus tard (broadcast = ACK implicite si un voisin
-        # rebroadcaste). N'apparaît PAS dans la réponse HTTP.
+        # rebroadcaste). N'apparaît PAS dans la réponse HTTP. Timeout de repli pour ne
+        # jamais rester silencieux.
         label = f"canal={command.get('channel')}"
+        acked = {"done": False}
 
         def _on_ack(response):
+            acked["done"] = True
             log.info("[downlink] ACK %s → %s", label, _ack_status(response))
 
+        def _on_timeout():
+            if not acked["done"]:
+                log.info("[downlink] ACK %s → timeout (aucun accusé reçu)", label)
+
+        _start_ack_timeout(_on_timeout)
         kwargs["wantAck"] = True
         kwargs["onResponse"] = _on_ack
     iface.sendText(text, **kwargs)
