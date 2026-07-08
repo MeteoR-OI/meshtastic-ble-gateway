@@ -67,10 +67,14 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
   2 écrivains multi-process ; tables `node_metrics`/`neighbors`/`link_quality` ; `record_*`,
   `latest`, `history`, `prune`, `export_csv`). Connexion bornée par un context manager
   `_conn` (toujours fermée → pas de fuite). `metrics.py` : lecteurs **purs** (`node_metrics`,
-  `position`, `neighbors` 0-hop, `ble_rssi` best-effort) depuis un fake iface. Le **worker**
+  `position`, `neighbors` 0-hop avec SNR/RSSI radio) depuis un fake iface. Le **worker**
   écrit node_metrics/neighbors (monitor injecté dans `run_one_session`, cadence
   `monitor_interval`) ; le **superviseur** écrit link_quality (compteur reconnexions) + thread
   d'export CSV/purge. Lecture batterie ACTIVE (`getMyNodeInfo`) → contourne le broadcast 12 h.
+  **Pas de RSSI du lien BLE** : vérifié sur MHA235/BlueZ 5.55, `bluetoothd` détient hci0 →
+  ni HCI Read RSSI, ni mgmt Get Conn Info, ni D-Bus Device1.RSSI ne donnent de valeur sur un
+  lien LE connecté (même en root) sans couper la passerelle. Le **signal de qualité BLE = le
+  compteur de reconnexions** (`link_quality`).
 - `__main__.py` — CLI. **L'ENV est la base de la config, la CLI override** (via
   `dataclasses.replace` : on n'override QUE les champs CLI → tout futur champ se propage seul,
   fin du bug « champ oublié »). Câble le superviseur avec `spawn_worker` + `get_context("fork")`

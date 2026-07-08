@@ -4,7 +4,13 @@
 
 Lecture ACTIVE locale : `getMyNodeInfo()['deviceMetrics']` donne la batterie fraîche
 sans dépendre du broadcast (deviceUpdateInterval = 12 h). Fonctions pures (dicts en
-entrée) sauf `ble_rssi` qui sonde l'interface — testables sans matériel.
+entrée) — testables sans matériel.
+
+NB : pas de RSSI du lien BLE (RPi↔node). Vérifié sur MHA235 (BlueZ 5.55) : `bluetoothd`
+détient le contrôleur, donc ni HCI `Read RSSI` (`hcitool rssi`), ni mgmt `Get Conn Info`
+(`btmgmt conn-info`), ni D-Bus `Device1.RSSI` ne renvoient de valeur pour un lien LE
+connecté — même en root — sauf à détacher le contrôleur (= couper la passerelle). Le
+signal de qualité du lien BLE est donc le compteur de reconnexions (`link_quality`).
 """
 from __future__ import annotations
 
@@ -46,15 +52,3 @@ def neighbors(nodes_by_num: Dict[int, Any], my_num: Optional[int]) -> List[Dict[
             }
         )
     return out
-
-
-def ble_rssi(iface: Any) -> Optional[int]:
-    """RSSI du lien BLE local (best-effort ; souvent None en connexion via bleak/BlueZ)."""
-    try:
-        client = getattr(iface, "client", None)
-        bleak_client = getattr(client, "bleak_client", None)
-        props = getattr(bleak_client, "_properties", None) or {}
-        value = props.get("RSSI")
-        return int(value) if value is not None else None
-    except Exception:  # noqa: BLE001 — best-effort, jamais bloquant
-        return None

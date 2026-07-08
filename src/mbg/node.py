@@ -119,10 +119,9 @@ class MeshtasticNodeLink:
         return self._liveness(self._iface)
 
     def read_metrics(self) -> dict:
-        """Relève les métriques du node (device, position, voisins, RSSI BLE) — sans I/O radio."""
+        """Relève les métriques du node (device, position, voisins) — sans I/O radio."""
         info = self._iface.getMyNodeInfo() or {}
         node = metrics.node_metrics(info)
-        node["ble_rssi"] = metrics.ble_rssi(self._iface)
         nodes_by_num = getattr(self._iface, "nodesByNum", None) or {}
         return {
             "node": node,

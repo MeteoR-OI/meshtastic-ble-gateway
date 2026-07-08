@@ -20,7 +20,7 @@ _TABLES = ("node_metrics", "neighbors", "link_quality")
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS node_metrics (
   ts REAL, battery_level INTEGER, voltage REAL, channel_util REAL,
-  air_util_tx REAL, uptime INTEGER, lat REAL, lon REAL, altitude INTEGER, ble_rssi INTEGER
+  air_util_tx REAL, uptime INTEGER, lat REAL, lon REAL, altitude INTEGER
 );
 CREATE TABLE IF NOT EXISTS neighbors (
   ts REAL, node_id TEXT, snr REAL, rssi INTEGER, last_heard INTEGER
@@ -55,11 +55,11 @@ class MetricsStore:
         with self._conn(commit=True) as conn:
             conn.execute(
                 "INSERT INTO node_metrics (ts,battery_level,voltage,channel_util,air_util_tx,"
-                "uptime,lat,lon,altitude,ble_rssi) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                "uptime,lat,lon,altitude) VALUES (?,?,?,?,?,?,?,?,?)",
                 (
                     self._clock(), metrics.get("battery_level"), metrics.get("voltage"),
                     metrics.get("channel_util"), metrics.get("air_util_tx"), metrics.get("uptime"),
-                    pos.get("lat"), pos.get("lon"), pos.get("altitude"), metrics.get("ble_rssi"),
+                    pos.get("lat"), pos.get("lon"), pos.get("altitude"),
                 ),
             )
 

@@ -36,18 +36,3 @@ def test_neighbors_filters_direct_and_self():
     assert ids == {"!001", "!00000003"}
     direct = next(n for n in out if n["node_id"] == "!001")
     assert direct["snr"] == 6.0 and direct["rssi"] == -90 and direct["last_heard"] == 10
-
-
-def test_ble_rssi_from_properties():
-    iface = SimpleNamespace(client=SimpleNamespace(bleak_client=SimpleNamespace(_properties={"RSSI": -87})))
-    assert metrics.ble_rssi(iface) == -87
-
-
-def test_ble_rssi_absent_returns_none():
-    assert metrics.ble_rssi(SimpleNamespace()) is None  # pas de client -> None (best-effort)
-
-
-def test_ble_rssi_bad_value_returns_none():
-    # RSSI non convertible -> int() lève -> best-effort renvoie None (branche except)
-    iface = SimpleNamespace(client=SimpleNamespace(bleak_client=SimpleNamespace(_properties={"RSSI": "x"})))
-    assert metrics.ble_rssi(iface) is None

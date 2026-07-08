@@ -163,7 +163,6 @@ def test_read_metrics_aggregates():
             "position": {"latitude": -21.0},
         },
         nodesByNum={1: {"hopsAway": 0, "user": {"id": "!001"}, "snr": 5.0}},
-        client=SimpleNamespace(bleak_client=SimpleNamespace(_properties={"RSSI": -88})),
     )
     link = MeshtasticNodeLink(
         "addr", lambda m: None,
@@ -174,7 +173,6 @@ def test_read_metrics_aggregates():
     link.open()
     data = link.read_metrics()
     assert data["node"]["battery_level"] == 80
-    assert data["node"]["ble_rssi"] == -88
     assert data["position"]["lat"] == -21.0
     assert data["neighbors"][0]["node_id"] == "!001"
 

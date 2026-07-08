@@ -6,11 +6,11 @@ from mbg.storage import MetricsStore
 
 def test_record_and_latest(tmp_path):
     store = MetricsStore(str(tmp_path / "m.db"), clock=lambda: 100.0)
-    store.record_node({"battery_level": 80, "voltage": 3.9, "ble_rssi": -89}, {"lat": -21.3, "lon": 55.4})
+    store.record_node({"battery_level": 80, "voltage": 3.9}, {"lat": -21.3, "lon": 55.4})
     store.record_link(3)
     latest = store.latest()
     assert latest["node"]["battery_level"] == 80
-    assert latest["node"]["ble_rssi"] == -89
+    assert latest["node"]["voltage"] == 3.9
     assert latest["node"]["lat"] == -21.3
     assert latest["link"]["reconnects"] == 3
 

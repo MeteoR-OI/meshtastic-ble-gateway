@@ -137,9 +137,15 @@ implicite (un voisin rebroadcaste le paquet). Toutes les commandes sont tracées
 
 Activé si `MBG_MONITOR_INTERVAL > 0`. Le worker relève **la batterie fraîche** (lecture
 active `getMyNodeInfo`, contourne le broadcast 12 h), le voltage, l'utilisation canal/air,
-la position et les **voisins directs + SNR** ; le superviseur enregistre la **qualité du
-lien BLE** (reconnexions). Stockage **SQLite** (`MBG_DB_PATH`) — lisible directement par
-les scripts locaux, exposé par l'API et exporté en **CSV** (`MBG_DUMP_DIR`).
+la position et les **voisins directs + SNR/RSSI radio** ; le superviseur enregistre la
+**qualité du lien BLE** via le **compteur de reconnexions** (`link_quality`). Stockage
+**SQLite** (`MBG_DB_PATH`) — lisible directement par les scripts locaux, exposé par l'API
+et exporté en **CSV** (`MBG_DUMP_DIR`).
+
+> Pas de RSSI absolu du lien BLE : sur BlueZ, `bluetoothd` détient le contrôleur, donc le
+> RSSI d'un lien LE connecté n'est plus exposé (ni `hcitool rssi`, ni `btmgmt conn-info`,
+> ni D-Bus `Device1.RSSI`, même en root) — vérifié terrain. Le **compteur de reconnexions**
+> est le signal de qualité BLE.
 
 ```bash
 curl -H "X-API-Token: $TOKEN" $BASE/metrics                 # dernier relevé {node, link}
