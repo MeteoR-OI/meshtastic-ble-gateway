@@ -11,6 +11,8 @@ def _channel(index, name):
 class FakeIface:
     def __init__(self):
         self.sent_text = None
+        self.want_ack = False
+        self.on_response = None
         self.telemetry = 0
         self.written = []
         self.localNode = SimpleNamespace(
@@ -28,8 +30,10 @@ class FakeIface:
     def _write(self, section):
         self.written.append(section)
 
-    def sendText(self, text, channelIndex=0, destinationId=None):
+    def sendText(self, text, channelIndex=0, destinationId=None, wantAck=False, onResponse=None):
         self.sent_text = (text, channelIndex, destinationId)
+        self.want_ack = wantAck
+        self.on_response = onResponse
 
     def sendTelemetry(self):
         self.telemetry += 1
@@ -62,6 +66,40 @@ def test_text_missing_text():
 def test_text_unknown_channel():
     r = execute_command(FakeIface(), {"type": "text", "text": "x", "channel": "nope"})
     assert r["ok"] is False and "canal inconnu" in r["error"]
+
+
+def test_text_without_want_ack():
+    iface = FakeIface()
+    execute_command(iface, {"type": "text", "text": "hi", "channel": 0})
+    assert iface.want_ack is False and iface.on_response is None
+
+
+def test_text_want_ack_registers_callback():
+    iface = FakeIface()
+    r = execute_command(iface, {"type": "text", "text": "hi", "channel": "meteo", "want_ack": True})
+    assert r["ok"] and r["want_ack"] is True
+    assert iface.want_ack is True and callable(iface.on_response)
+    # invoquer le callback ACK (asynchrone en vrai) ne doit pas lever
+    iface.on_response({"decoded": {"routing": {"errorReason": "NONE"}}})
+
+
+def test_ack_status_ack():
+    from mbg.control import _ack_status
+
+    assert _ack_status({"decoded": {"routing": {"errorReason": "NONE"}}}) == "reçu (ACK)"
+
+
+def test_ack_status_missing_routing_is_ack():
+    from mbg.control import _ack_status
+
+    assert _ack_status({}) == "reçu (ACK)"
+
+
+def test_ack_status_nak():
+    from mbg.control import _ack_status
+
+    s = _ack_status({"decoded": {"routing": {"errorReason": "MAX_RETRANSMIT"}}})
+    assert "échec" in s and "MAX_RETRANSMIT" in s
 
 
 def test_telemetry():

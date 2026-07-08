@@ -95,6 +95,8 @@ chemin d'écriture BLE ; un write qui gèle est absorbé par l'isolation (worker
 TOKEN=... ; BASE=http://<rpi>:8080
 # message texte sur un canal (nom ou index) :
 curl -H "X-API-Token: $TOKEN" -d '{"text":"alerte","channel":"Fr_Balise"}' $BASE/send/text
+# avec accusé d'émission radio (want_ack) -> log ASYNCHRONE "[downlink] ACK ... → reçu/échec" :
+curl -H "X-API-Token: $TOKEN" -d '{"text":"test","channel":"Fr_Balise","want_ack":true}' $BASE/send/text
 # télémétrie :
 curl -H "X-API-Token: $TOKEN" -d '{}' $BASE/send/telemetry
 # admin (rôle, intervalles…) :
@@ -105,6 +107,12 @@ curl -H "X-API-Token: $TOKEN" $BASE/health
 Réponses : `200` ok, `401` token invalide, `503` aucun worker connecté, `504` timeout
 worker, `400` commande invalide. Réglages admin : `role`, `position_broadcast_secs`,
 `gps_mode`, `device_update_interval` (extensible dans `src/mbg/control.py`).
+
+`want_ack` (optionnel, `/send/text`) demande un **accusé d'émission radio** : la réponse
+HTTP reste immédiate (`ok`), et l'ACK/NAK arrive **plus tard** dans le journal
+(`[downlink] ACK canal=… → reçu (ACK)` / `échec (…)`). Pour un broadcast, l'ACK est
+implicite (un voisin rebroadcaste le paquet). Toutes les commandes sont tracées en INFO :
+`[downlink] …` (audit, process superviseur) et `[downlink] ACK …` (asynchrone, worker).
 
 > **Archi** : le service lance un **superviseur** qui fait tourner le BLE dans un
 > **worker (sous-processus) jetable**. Superviseur figé impossible (aucun BLE) → il nourrit

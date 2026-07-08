@@ -33,10 +33,12 @@ def test_send_text_builds_command():
         return {"ok": True}
 
     status, _ = handle_request(
-        "POST", "/send/text", _hdr("s"), '{"text":"hi","channel":"meteo"}', "s", dispatch
+        "POST", "/send/text", _hdr("s"), '{"text":"hi","channel":"meteo","want_ack":true}', "s", dispatch
     )
     assert status == 200
-    assert seen["cmd"] == {"type": "text", "text": "hi", "channel": "meteo", "dest": None}
+    assert seen["cmd"] == {
+        "type": "text", "text": "hi", "channel": "meteo", "dest": None, "want_ack": True,
+    }
 
 
 def test_send_telemetry_empty_body():

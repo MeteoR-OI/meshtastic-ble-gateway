@@ -30,6 +30,7 @@ def _command_for(path: str, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]
             "text": payload.get("text"),
             "channel": payload.get("channel", 0),
             "dest": payload.get("dest"),
+            "want_ack": payload.get("want_ack", False),
         }
     if path == "/send/telemetry":
         return {"type": "telemetry", "dest": payload.get("dest")}
