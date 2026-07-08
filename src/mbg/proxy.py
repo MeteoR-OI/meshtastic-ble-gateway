@@ -9,9 +9,26 @@ et le parsing vivent côté MeshForge, pas ici.
 from __future__ import annotations
 
 import logging
-from typing import Protocol
+from typing import Optional, Protocol, Tuple
 
 log = logging.getLogger("mbg.proxy")
+
+
+def _envelope_header(data: bytes) -> Tuple[Optional[str], Optional[int]]:
+    """(!fromId, id) lus dans l'en-tête ServiceEnvelope (en CLAIR, sans clé) — pour le log.
+
+    Best-effort : ne déchiffre RIEN, ne modifie RIEN (le forward reste opaque). Renvoie
+    (None, None) si le payload n'est pas un ServiceEnvelope décodable (ex. JSON, map…).
+    """
+    try:
+        from meshtastic.protobuf import mqtt_pb2
+
+        env = mqtt_pb2.ServiceEnvelope()
+        env.ParseFromString(data)
+        src = getattr(env.packet, "from")
+        return "!%08x" % (src & 0xFFFFFFFF), env.packet.id
+    except Exception:  # noqa: BLE001 — décodage best-effort, jamais bloquant
+        return None, None
 
 
 class ProxyMessage(Protocol):
@@ -44,4 +61,11 @@ class Proxy:
             log.warning("échec publish %s: %s", proxymessage.topic, exc)
             return
         self.forwarded += 1
-        log.info("[uplink] %s (%d octets)", proxymessage.topic, len(proxymessage.data))
+        src, pid = _envelope_header(proxymessage.data)
+        if src is not None:
+            log.info(
+                "[uplink] from=%s id=%s %s (%d octets)",
+                src, pid, proxymessage.topic, len(proxymessage.data),
+            )
+        else:
+            log.info("[uplink] %s (%d octets)", proxymessage.topic, len(proxymessage.data))
