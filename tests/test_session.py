@@ -127,13 +127,39 @@ def test_monitor_called_on_cadence():
         if len(slept) >= 3:  # décrochage après 3 polls
             box["link"].alive = False
 
-    # monitor_interval=1s, poll=0.5s -> monitor tous les 2 polls
+    # monitor_interval=1s, poll=0.5s -> polls_per_monitor=2 : relevé au 1er poll (tôt),
+    # puis tous les 2 polls. Décrochage après 3 polls -> relevés aux polls 1 et 3.
     run_one_session(
         Config(poll_interval=0.5, monitor_interval=1.0), lambda: pub, nf, lambda: None,
         seq([True, True, True, True]), sleep=sleep_, monitor=lambda link: monitored.append(link),
     )
-    assert len(monitored) == 1  # déclenché une fois (au 2e poll)
+    assert len(monitored) == 2  # 1 tôt (poll 1) + 1 périodique (poll 3)
     assert monitored[0] is box["link"]
+
+
+def test_monitor_sampled_before_first_periodic_tick():
+    """Régression : session qui meurt AVANT le 1er tic périodique -> quand même 1 relevé.
+
+    Cas terrain : lien instable, sessions ~267 s < monitor_interval=300 s. Sans relevé
+    précoce, node_metrics resterait vide en permanence.
+    """
+    pub = FakePublisher()
+    box = {}
+
+    def nf(addr, cb, on_lost):
+        box["link"] = FakeNodeLink(addr, cb)
+        return box["link"]
+
+    monitored = []
+
+    def sleep_(s):
+        box["link"].alive = False  # la session meurt dès le 1er poll (bien avant 300 s)
+
+    run_one_session(
+        Config(poll_interval=0.5, monitor_interval=300.0), lambda: pub, nf, lambda: None,
+        seq([True, True]), sleep=sleep_, monitor=lambda link: monitored.append(link),
+    )
+    assert len(monitored) == 1  # relevé précoce garanti malgré la session courte
 
 
 def test_stops_when_should_continue_false():

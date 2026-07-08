@@ -68,8 +68,11 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
   `latest`, `history`, `prune`, `export_csv`). Connexion bornée par un context manager
   `_conn` (toujours fermée → pas de fuite). `metrics.py` : lecteurs **purs** (`node_metrics`,
   `position`, `neighbors` 0-hop avec SNR/RSSI radio) depuis un fake iface. Le **worker**
-  écrit node_metrics/neighbors (monitor injecté dans `run_one_session`, cadence
-  `monitor_interval`) ; le **superviseur** écrit link_quality (compteur reconnexions) + thread
+  écrit node_metrics/neighbors (monitor injecté dans `run_one_session`) : **un relevé tôt
+  dans chaque session** (dès le lien établi) **puis** à la cadence `monitor_interval` — sinon,
+  lien instable oblige (sessions < `monitor_interval`), le tic périodique ne tomberait jamais
+  et node_metrics resterait vide (bug terrain 2026-07-08). Le **superviseur** écrit
+  link_quality sur événement (compteur reconnexions, indépendant de la longévité de session) + thread
   d'export CSV/purge. Lecture batterie ACTIVE (`getMyNodeInfo`) → contourne le broadcast 12 h.
   **Pas de RSSI du lien BLE** : vérifié sur MHA235/BlueZ 5.55, `bluetoothd` détient hci0 →
   ni HCI Read RSSI, ni mgmt Get Conn Info, ni D-Bus Device1.RSSI ne donnent de valeur sur un

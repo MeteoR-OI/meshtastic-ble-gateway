@@ -54,6 +54,7 @@ def run_one_session(
         else 0
     )
     poll_count = 0
+    sampled_once = False  # a-t-on déjà relevé les métriques dans cette session ?
     while should_continue():
         # Coupure signalée (lost) OU silencieuse (sonde de vivacité) -> on rend la main.
         if lost.is_set() or not link.is_alive():
@@ -63,10 +64,15 @@ def run_one_session(
             for cmd in commands.drain():
                 commands.reply(cmd["id"], link.send(cmd))
         if polls_per_monitor:
-            poll_count += 1
-            if poll_count >= polls_per_monitor:
+            # Relève une fois TÔT dans la session (dès le lien établi) puis à la cadence
+            # monitor_interval. Sinon, si la session BLE meurt avant le 1er tic périodique
+            # (lien instable : sessions < monitor_interval), on ne capturerait JAMAIS de
+            # node_metrics. Le compteur repart à zéro à chaque session/respawn.
+            if not sampled_once or poll_count >= polls_per_monitor:
                 poll_count = 0
+                sampled_once = True
                 monitor(link)
+            poll_count += 1
         heartbeat()
         sleep(config.poll_interval)
     log.info("session terminée (%d relayés, %d erreurs)", proxy.forwarded, proxy.errors)
