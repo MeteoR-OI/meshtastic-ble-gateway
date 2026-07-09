@@ -87,8 +87,12 @@ class Supervisor:
         if not self._config.battery_tiers:
             return Tier("STATIC", self._config.monitor_interval, False)
         node = (self._store.latest().get("node") if self._store is not None else None) or {}
-        self._tier = select_tier(node.get("battery_level"), self._tier, self._config.tier_hysteresis)
-        return self._tier
+        level = node.get("battery_level")
+        new = select_tier(level, self._tier, self._config.tier_hysteresis)
+        if new != self._tier:  # transition -> tracé pour l'observabilité terrain
+            log.info("palier batterie → %s (batterie=%s%%)", new.name, level)
+        self._tier = new
+        return new
 
     def _effective_config(self, tier: Tier, announce: bool) -> Config:
         """Config du prochain worker : cadence du palier ; télémétrie forcée si changement de mode."""
