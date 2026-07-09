@@ -3,6 +3,66 @@
 Passerelle = forward opaque du Client Proxy `/e/` du node vers le broker MeshForge.
 Le déchiffrement se fait côté MeshForge (voir plus bas).
 
+## Prérequis Python (Bullseye 3.9+ vs Buster 3.7)
+
+`meshtastic` (2.7.x) exige **Python ≥ 3.9**.
+- **Raspbian 11 (Bullseye)** et + : le `python3` système est déjà en 3.9 → passer directement au §1.
+- **Raspbian 10 (Buster)** : le `python3` système est en **3.7** (trop vieux). Il faut un
+  Python **3.9+ isolé**, **sans jamais toucher au Python système** (dont dépendent `apt`,
+  `raspi-config`…). Voir la section **« Raspbian 10 (Buster) : Python 3.9+ isolé »** ci-dessous,
+  **puis** revenir au §1 en utilisant ce Python isolé pour créer le venv.
+
+## Raspbian 10 (Buster) : Python 3.9+ isolé
+
+> ⚠️ **Zéro impact sur le Python système.** Règles d'or : **jamais** `apt install python3.x`,
+> **jamais** `make install` (uniquement `make altinstall`), **jamais** `update-alternatives`
+> sur `python3`, ne pas toucher à `/usr/bin/python3`. On installe un interpréteur **à côté**
+> et le service pointe explicitement dessus. Les paquets `apt` ci-dessous sont des
+> **bibliothèques de compilation** (`-dev`), pas des paquets Python → ils ne changent pas le
+> `python3` système.
+
+**Méthode recommandée : compiler Python 3.11 en `altinstall` sous `/opt` (isolé).**
+
+```bash
+# 1) libs de build (n'affectent PAS le python système)
+sudo apt-get update
+sudo apt-get install -y build-essential wget libssl-dev zlib1g-dev libbz2-dev \
+  libreadline-dev libsqlite3-dev libffi-dev libncurses5-dev liblzma-dev uuid-dev
+
+# 2) compiler + altinstall (crée /opt/python3.11/bin/python3.11, JAMAIS `python3`)
+cd /usr/src
+PYV=3.11.9
+sudo wget -q https://www.python.org/ftp/python/$PYV/Python-$PYV.tgz
+sudo tar xzf Python-$PYV.tgz && cd Python-$PYV
+sudo ./configure --prefix=/opt/python3.11 --enable-optimizations
+sudo make -j"$(nproc)"            # ~20-40 min sur un Pi (armv7)
+sudo make altinstall             # altinstall = n'écrase pas /usr/bin/python3
+
+# 3) vérifier l'isolation
+/opt/python3.11/bin/python3.11 --version   # Python 3.11.9
+python3 --version                          # <- INCHANGÉ : le 3.7 système de Buster
+```
+
+Puis, au **§1**, créer le venv **depuis ce Python isolé** au lieu du `python3` système :
+
+```bash
+sudo /opt/python3.11/bin/python3.11 -m venv .venv   # (remplace `python3 -m venv .venv`)
+sudo .venv/bin/pip install -e .
+```
+
+Le reste (systemd, ENV, mise à jour) est identique : le service utilise déjà
+`.venv/bin/python` (pas le python système). Vérifier après démarrage :
+`sudo .venv/bin/python -c "import sys; print(sys.version)"` → 3.11.
+
+> Alternative : **pyenv** (installe sous `~/.pyenv`, isolé aussi) si tu préfères. Éviter les
+> conteneurs pour le BLE (accès `hci0`/D-Bus depuis Docker = fragile). Note armv7 (Pi 32-bit) :
+> certaines dépendances n'ont pas de wheel → compilées depuis les sources (d'où les libs `-dev`).
+
+> **Compatibilité vérifiée** : en environnement **Debian 10 (Buster) + Python 3.9**, meshtastic
+> 2.7.x + bleak + paho s'installent et la suite de tests passe à 100 % — le userland Buster est
+> compatible sous un Python 3.9+. (Vérifié en conteneur `python:3.9-buster` amd64 ; sur un Pi
+> armv7 réel, prévoir la compilation de quelques wheels natives.)
+
 ## 1. Installer sur le RPi
 
 ```bash

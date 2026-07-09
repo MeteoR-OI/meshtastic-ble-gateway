@@ -111,6 +111,11 @@ Les arguments CLI ne servent qu'en usage manuel/PoC et priment s'ils sont fourni
   dans `tests/fakes.py`. Le PoC (`poc/`) est exclu (spike matériel).
 - Vérifier aussi en **Python 3.9** (cible RPi OS Bullseye), pas seulement en local :
   `docker run --rm -v "$PWD":/app -w /app python:3.9 bash -c "pip install -q -e '.[dev]' && pytest -q"`.
+- **Plancher Python = 3.9** (`requires-python>=3.9`) car **meshtastic 2.7.x exige ≥3.9** (la
+  dernière meshtastic supportant 3.7 est 2.3.11, trop ancienne). Sur **Raspbian 10 (Buster)**
+  dont le python système est en 3.7, on **n'abaisse PAS** le code : on installe un Python 3.9+
+  **isolé** (altinstall/pyenv, jamais le python système) — cf. `deploy/README.md`. Compat du
+  userland Buster vérifiée en conteneur `python:3.9-buster` (deps + tests OK).
 - Intégration broker réel : `docker compose -f poc/docker-compose.yml up -d && pytest tests/integration --no-cov`.
 - **La couverture NE prouve PAS la correction.** Toujours tester le **chemin de
   déploiement réel** (ex. `main([])` + env, comme systemd) et **smoker le vrai entrypoint**,
