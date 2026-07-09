@@ -204,6 +204,16 @@ def test_submit_admin_command_and_error_result():
     assert r["ok"] is False
 
 
+def test_submit_directed_command_audit():
+    sup = _quiet_sup()
+    worker = FakeWorkerHandle(beat_value=5)
+    worker.submit_result = {"ok": True}
+    sup._set_current(worker)
+    # commande dirigée (dest) -> branche _describe « ctype → dest »
+    r = sup.submit({"type": "request_position", "dest": "!42cd37a3"}, 1)
+    assert r["ok"] is True
+
+
 class FakeStore:
     def __init__(self):
         self.links = []

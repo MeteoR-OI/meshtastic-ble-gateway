@@ -51,10 +51,13 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
   le watchdog systemd (`sd_notify`). Testé avec un faux spawn (aucun vrai process).
 - `systemd_notify.py` — `sd_notify` (watchdog, sans dépendance).
 - `control.py` — `execute_command(iface, command)` : traduit une commande (text/telemetry/
-  position/admin) en appel meshtastic. Ne lève jamais. Whitelist admin extensible. Pour
-  `want_ack`, renvoie `packet_id` (le node corrèle l'ACK). **`position`** ré-émet TOUJOURS
-  des coordonnées (override `{lat,lon,alt}` ou position fixe lue sur le node) — jamais 0,0,
-  que le firmware adopterait comme position locale (écraserait la position fixe).
+  position/request_position/admin) en appel meshtastic. Ne lève jamais. Whitelist admin
+  extensible. Pour `want_ack`, renvoie `packet_id` (le node corrèle l'ACK). **`position`**
+  ré-émet TOUJOURS des coordonnées (override `{lat,lon,alt}` ou position fixe lue sur le node)
+  — jamais 0,0, que le firmware adopterait comme position locale (écraserait la position fixe).
+  **Requêtes distantes (V0.6)** : `telemetry` avec `dest` → `sendTelemetry(destinationId,
+  wantResponse=True)` ; `request_position` → `sendPosition(dest, wantResponse=True)`. La réponse
+  du node distant arrive **async** via le mesh → remonte en `[uplink]` MQTT (pas dans la réponse HTTP).
 - **ACK radio (want_ack)** : `sendText(onResponse=…)` est **CASSÉ** en meshtastic BLE 2.7.10
   (le handler ne matche pas le requestId — prouvé py-spy/capture). ⇒ on ne s'y fie PAS :
   `node` s'abonne à `meshtastic.receive`, corrèle un `ROUTING_APP` entrant dont le
@@ -130,6 +133,13 @@ Les arguments CLI ne servent qu'en usage manuel/PoC et priment s'ils sont fourni
   dont le python système est en 3.7, on **n'abaisse PAS** le code : on installe un Python 3.9+
   **isolé** (altinstall/pyenv, jamais le python système) — cf. `deploy/README.md`. Compat du
   userland Buster vérifiée en conteneur `python:3.9-buster` (deps + tests OK).
+- **Buster = deux pièges BLE en plus (V0.6, validés terrain CHAR645)** : (1) **BlueZ 5.50 < 5.55**
+  → **pas de notifications GATT** (connexion OK, zéro donnée) → installer le paquet vendorisé
+  `bluez-meshforge` (BlueZ 5.55 sous `/opt`, `deploy/bluez-buster/`) + PATH du service vers
+  `/opt/bluez-5.55/bin` (bleak lit `bluetoothctl --version`). (2) **bleak non pinné** (dep
+  transitive) → bleak 3.x sur Python ≥3.10 **casse sur BlueZ <5.52** (`KeyError: 'Roles'`) →
+  **`constraints.txt` pin `bleak==1.1.1`** (`pip install -e . -c constraints.txt`). Aussi : node
+  **`Paired` mais NON `Trusted`** (sinon bluez auto-reconnecte → le node cesse d'émettre → scan KO).
 - Intégration broker réel : `docker compose -f poc/docker-compose.yml up -d && pytest tests/integration --no-cov`.
 - **La couverture NE prouve PAS la correction.** Toujours tester le **chemin de
   déploiement réel** (ex. `main([])` + env, comme systemd) et **smoker le vrai entrypoint**,
@@ -143,7 +153,9 @@ Les arguments CLI ne servent qu'en usage manuel/PoC et priment s'ils sont fourni
 - **V0.4** (fait) : paliers batterie + duty-cycle du lien BLE (adaptatif ; opt-in ; seuils dans le README).
 - **V0.5** (fait) : stabilisation du lien BLE sur signal faible — supervision timeout imposé au lien
   vivant via `hcitool lecup` (opt-in ; nécessite CAP_NET_ADMIN). Voir `link_tuner.py`.
-- **V0.6** : transports alternatifs (USB-série / WiFi-TCP) si le matériel du node le permet.
+- **V0.6** (fait) : support **Raspbian Buster** (Python/BlueZ 5.55 isolés, pin bleak, doc appairage/
+  port) + **requêtes vers un node distant** (`/send/telemetry` avec `dest`, `/request/position`).
+- **V0.7** : transports alternatifs (USB-série / WiFi-TCP) si le matériel du node le permet.
 
 ## Conventions
 

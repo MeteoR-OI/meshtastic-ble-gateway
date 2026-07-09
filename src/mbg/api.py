@@ -5,8 +5,8 @@
 `handle_request` est **pur** (auth token + routage + validation) → testable à
 100 %. `serve` est l'adaptateur socket/thread (frontière OS, testé en intégration).
 Auth par en-tête `X-API-Token`. Routes : POST /send/text, /send/telemetry,
-/send/position, /admin ; GET /health, /metrics, /history. Les commandes POST sont
-relayées au worker via `dispatch` (déjà borné en
+/send/position, /request/position, /admin ; GET /health, /metrics, /history. Les
+commandes POST sont relayées au worker via `dispatch` (déjà borné en
 timeout) qui renvoie `{"ok": bool, ...}`.
 """
 from __future__ import annotations
@@ -35,10 +35,14 @@ def _command_for(path: str, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]
             "want_ack": payload.get("want_ack", False),
         }
     if path == "/send/telemetry":
-        return {"type": "telemetry", "dest": payload.get("dest")}
+        # `dest` -> requête de télémétrie à un node distant (wantResponse) ; sinon diffusion locale.
+        return {"type": "telemetry", "dest": payload.get("dest"), "channel": payload.get("channel", 0)}
     if path == "/send/position":
         # lat/lon/alt optionnels : absents -> ré-émet la position FIXE du node (jamais 0,0).
         return {"type": "position", "lat": payload.get("lat"), "lon": payload.get("lon"), "alt": payload.get("alt")}
+    if path == "/request/position":
+        # demande à un node distant de renvoyer sa position (wantResponse) ; `dest` requis.
+        return {"type": "request_position", "dest": payload.get("dest"), "channel": payload.get("channel", 0)}
     if path == "/admin":
         return {"type": "admin", "setting": payload.get("setting"), "value": payload.get("value")}
     return None

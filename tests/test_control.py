@@ -38,14 +38,17 @@ class FakeIface:
         self.want_ack = wantAck
         return SimpleNamespace(id=999)  # paquet meshtastic (avec son id)
 
-    def sendTelemetry(self):
+    def sendTelemetry(self, destinationId=None, wantResponse=False, channelIndex=0):
         self.telemetry += 1
+        self.telemetry_args = (destinationId, wantResponse, channelIndex)
 
     def getMyNodeInfo(self):
         return {"position": self._node_position}
 
-    def sendPosition(self, latitude, longitude, channelIndex=0, altitude=None):
+    def sendPosition(self, latitude, longitude, channelIndex=0, altitude=None,
+                     destinationId=None, wantResponse=False):
         self.sent_position = (latitude, longitude, channelIndex, altitude)
+        self.position_args = (destinationId, wantResponse)
         return SimpleNamespace(id=1234)
 
 
@@ -97,6 +100,33 @@ def test_telemetry():
     iface = FakeIface()
     r = execute_command(iface, {"type": "telemetry"})
     assert r["ok"] and iface.telemetry == 1
+    assert iface.telemetry_args == (None, False, 0)  # diffusion locale (pas de dest)
+
+
+def test_telemetry_directed_request():
+    iface = FakeIface()
+    r = execute_command(iface, {"type": "telemetry", "dest": "!42cd37a3", "channel": "meteo"})
+    assert r["ok"] and "demandée à !42cd37a3" in r["detail"]
+    assert iface.telemetry_args == ("!42cd37a3", True, 3)  # wantResponse + canal résolu
+
+
+def test_request_position_ok():
+    iface = FakeIface()
+    r = execute_command(iface, {"type": "request_position", "dest": "!42cd37a3"})
+    assert r["ok"] and r["id"] == 1234
+    assert iface.position_args == ("!42cd37a3", True)          # dirigé + wantResponse
+    assert iface.sent_position[:2] == (-21.34, 55.47)          # transmet notre position (pas 0,0)
+
+
+def test_request_position_missing_dest():
+    r = execute_command(FakeIface(), {"type": "request_position"})
+    assert r["ok"] is False and "dest manquant" in r["error"]
+
+
+def test_request_position_unknown_local_position_sends_zero():
+    iface = FakeIface(node_position={})  # position locale inconnue -> 0,0 (paquet dirigé, sans risque)
+    r = execute_command(iface, {"type": "request_position", "dest": "!x"})
+    assert r["ok"] and iface.sent_position[:2] == (0.0, 0.0)
 
 
 def test_position_reemits_node_fixed_position():

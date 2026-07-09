@@ -37,6 +37,9 @@ def _describe(command: Dict[str, Any]) -> str:
         return f"texte canal={command.get('channel')} «{snippet}»"
     if ctype == "admin":
         return f"admin {command.get('setting')}={command.get('value')}"
+    dest = command.get("dest")
+    if dest:  # commande dirigée (télémétrie/position vers un node distant)
+        return f"{ctype} → {dest}"
     return str(ctype)
 
 

@@ -1,0 +1,12 @@
+# Contraintes d'installation — reproductibilité de la pile BLE.
+#
+# `bleak` est une dépendance TRANSITIVE de `meshtastic` (non pinnée dans pyproject).
+# Selon la version de Python, pip résout des `bleak` différents — ex. bleak 3.x sur
+# Python ≥ 3.10 — et **bleak 3.x CASSE sur BlueZ < 5.52** (`KeyError: 'Roles'` à la
+# connexion). Deux installs « identiques » peuvent donc donner des comportements opposés
+# (MHA235 avait 1.1.1 = OK ; CHAR645 avait 3.0.2 = crash sur BlueZ 5.50).
+#
+# Combo prouvé en production (MHA235, CHAR645) : meshtastic 2.7.x + bleak 1.1.1 + dbus-fast.
+# À utiliser à l'installation, surtout sur Raspbian Buster (BlueZ 5.50) :
+#     pip install -e . -c constraints.txt
+bleak==1.1.1
