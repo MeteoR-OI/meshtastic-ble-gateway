@@ -109,7 +109,7 @@ def test_frozen_after_connect_is_killed():
 
     Supervisor(
         Config(supervisor_tick=1, alive_timeout=3, reconnect_delay=5),
-        spawn, sleep=sleep_, clock=clock, notify=lambda _: None,
+        spawn, sleep=sleep_, clock=clock, notify=lambda _: None, disconnect=lambda m: None,
     ).run(seq([True, True, True, True, True, True, True, False]))
 
     assert workers[0].killed is True
@@ -130,7 +130,7 @@ def test_frozen_during_connect_is_killed():
 
     Supervisor(
         Config(supervisor_tick=1, connect_grace=2, reconnect_delay=5),
-        spawn, sleep=sleep_, clock=clock, notify=lambda _: None,
+        spawn, sleep=sleep_, clock=clock, notify=lambda _: None, disconnect=lambda m: None,
     ).run(seq([True, True, True, True, True, False]))
 
     assert workers[0].killed is True  # tué au bout de connect_grace
@@ -154,9 +154,32 @@ def test_stop_kills_running_worker():
 
     Supervisor(
         Config(supervisor_tick=1), spawn, sleep=sleep_, clock=clock, notify=lambda _: None,
+        disconnect=lambda m: None,
     ).run(seq([True, True, False, False]))
 
     assert workers[0].killed is True  # _stop_worker tue le worker encore vivant
+
+
+def test_kill_forces_ble_disconnect():
+    # un worker gelé est SIGKILL -> le superviseur DOIT forcer bluez à lâcher l'ACL (sinon le
+    # node n'émet plus et le respawn ne le retrouve pas). Régression du churn terrain (CHAR645).
+    workers = []
+    clock = Clock()
+    disconnected = []
+
+    def spawn(cfg=None):
+        w = FakeWorkerHandle()  # ne bat jamais, reste "alive" (bloqué en connexion) -> SIGKILL
+        workers.append(w)
+        return w
+
+    Supervisor(
+        Config(supervisor_tick=1, connect_grace=2, ble_address="CF:87:36:2E:10:5B"),
+        spawn, sleep=lambda s: setattr(clock, "t", clock.t + s), clock=clock,
+        notify=lambda _: None, disconnect=disconnected.append,
+    ).run(seq([True, True, True, True, True, False]))
+
+    assert workers[0].killed is True
+    assert disconnected and set(disconnected) == {"CF:87:36:2E:10:5B"}  # disconnect(ble_address) post-kill
 
 
 def _quiet_sup(**kw):
