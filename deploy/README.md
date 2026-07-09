@@ -11,6 +11,8 @@ Le déchiffrement se fait côté MeshForge (voir plus bas).
   Python **3.9+ isolé**, **sans jamais toucher au Python système** (dont dépendent `apt`,
   `raspi-config`…). Voir la section **« Raspbian 10 (Buster) : Python 3.9+ isolé »** ci-dessous,
   **puis** revenir au §1 en utilisant ce Python isolé pour créer le venv.
+  ⚠️ Buster a aussi **BlueZ 5.50** (trop vieux pour les notifications GATT) → installer d'abord
+  **BlueZ 5.55** (cf. section BlueZ ci-dessous), et **pinner bleak** (voir `-c constraints.txt`).
 
 ## Raspbian 10 (Buster) : Python 3.9+ isolé
 
@@ -47,7 +49,7 @@ Puis, au **§1**, créer le venv **depuis ce Python isolé** au lieu du `python3
 
 ```bash
 sudo /opt/python3.11/bin/python3.11 -m venv .venv   # (remplace `python3 -m venv .venv`)
-sudo .venv/bin/pip install -e .
+sudo .venv/bin/pip install -e . -c constraints.txt  # -c : pin bleak==1.1.1 (BlueZ Buster)
 ```
 
 Le reste (systemd, ENV, mise à jour) est identique : le service utilise déjà
@@ -62,6 +64,33 @@ Le reste (systemd, ENV, mise à jour) est identique : le service utilise déjà
 > 2.7.x + bleak + paho s'installent et la suite de tests passe à 100 % — le userland Buster est
 > compatible sous un Python 3.9+. (Vérifié en conteneur `python:3.9-buster` amd64 ; sur un Pi
 > armv7 réel, prévoir la compilation de quelques wheels natives.)
+
+## Raspbian 10 (Buster) : BlueZ 5.55
+
+Buster livre **BlueZ 5.50**, trop vieux : la connexion BLE s'établit **mais aucune donnée ne
+remonte** (les **notifications GATT** ne fonctionnent pas sous 5.50). Il faut BlueZ **≥ 5.55**.
+Installer le paquet **`bluez-meshforge`** (BlueZ 5.55 sous `/opt`, sans toucher au BlueZ système) :
+
+```bash
+sudo dpkg -i bluez-meshforge_5.55-1~buster_armhf.deb   # (build : deploy/bluez-buster/)
+bluetoothctl --version                                  # -> 5.55
+```
+
+Détails (build reproductible, rollback) : **[`deploy/bluez-buster/README.md`](bluez-buster/README.md)**.
+
+- **`PATH` du service** : `bleak` vérifie **`bluetoothctl --version`** (le binaire du PATH). Avec
+  le .deb, il est dans `/opt/bluez-5.55/bin` → ajouter dans `mbg.service` :
+  `Environment=PATH=/opt/bluez-5.55/bin:/usr/local/bin:/usr/bin:/bin`.
+- **Appairage : node `Paired` mais NON `Trusted`.** Un node *trusted* est **auto-reconnecté**
+  par `bluetoothd` → il cesse d'émettre → le worker BLE ne le retrouve plus au scan
+  (`No … peripheral … found`, respawn en boucle). Vérifier/retirer le trust :
+  `bluetoothctl untrust <MAC>` (garder l'appairage).
+
+## Reproductibilité de l'install (bleak)
+
+`bleak` (dépendance transitive de meshtastic) n'est **pas pinné** → deux installs peuvent
+attraper des versions différentes, et **bleak 3.x casse sur BlueZ < 5.52**. Installer avec le
+fichier de contraintes (`bleak==1.1.1`, combo prouvé) : `pip install -e . -c constraints.txt`.
 
 ## 1. Installer sur le RPi
 
@@ -142,7 +171,7 @@ journalctl -u mbg -f
 | `MBG_ALIVE_TIMEOUT` | `15` | gap max entre heartbeats une fois le worker connecté (s) |
 | `MBG_API_TOKEN` | – | **token** de l'API de contrôle. Vide = **API désactivée** (défaut) |
 | `MBG_API_HOST` | `0.0.0.0` | interface d'écoute de l'API (ex. `127.0.0.1` pour localhost) |
-| `MBG_API_PORT` | `8080` | port de l'API |
+| `MBG_API_PORT` | `8080` | port de l'API. ⚠️ **`8080` entre en conflit avec le nginx** des stations météo (`Address already in use`) → choisir un port libre (ex. `8791`) |
 | `MBG_CONTROL_TIMEOUT` | `10` | attente max d'une réponse worker à une commande (s) |
 | `MBG_DB_PATH` | `metrics.db` | base SQLite des métriques (relative au WorkingDirectory) |
 | `MBG_MONITOR_INTERVAL` | `300` | cadence de relevé des métriques node (s ; `0` = monitoring off) |
@@ -191,11 +220,14 @@ TOKEN=... ; BASE=http://<rpi>:8080
 curl -H "X-API-Token: $TOKEN" -d '{"text":"alerte","channel":"Fr_Balise"}' $BASE/send/text
 # avec accusé d'émission radio (want_ack) -> log ASYNCHRONE "[downlink] ACK ... → reçu/échec" :
 curl -H "X-API-Token: $TOKEN" -d '{"text":"test","channel":"Fr_Balise","want_ack":true}' $BASE/send/text
-# télémétrie :
+# télémétrie du node local (diffusion) :
 curl -H "X-API-Token: $TOKEN" -d '{}' $BASE/send/telemetry
 # forcer une diffusion de position (rafraîchit la carte sans attendre le cycle 12 h) :
 curl -H "X-API-Token: $TOKEN" -X POST $BASE/send/position          # ré-émet la position FIXE du node
 curl -H "X-API-Token: $TOKEN" -d '{"lat":-21.34,"lon":55.47,"alt":120}' $BASE/send/position  # override explicite
+# INTERROGER un node DISTANT (wantResponse ; sa réponse remonte en [uplink] MQTT) :
+curl -H "X-API-Token: $TOKEN" -d '{"dest":"!42cd37a3"}' $BASE/send/telemetry     # télémétrie du node distant
+curl -H "X-API-Token: $TOKEN" -d '{"dest":"!42cd37a3"}' $BASE/request/position    # position du node distant
 # admin (rôle, intervalles…) :
 curl -H "X-API-Token: $TOKEN" -d '{"setting":"position_broadcast_secs","value":43200}' $BASE/admin
 curl -H "X-API-Token: $TOKEN" $BASE/health
@@ -204,6 +236,12 @@ curl -H "X-API-Token: $TOKEN" $BASE/health
 Réponses : `200` ok, `401` token invalide, `503` aucun worker connecté, `504` timeout
 worker, `400` commande invalide. Réglages admin : `role`, `position_broadcast_secs`,
 `gps_mode`, `device_update_interval` (extensible dans `src/mbg/control.py`).
+
+**Requêtes vers un node distant** : `dest` sur `/send/telemetry`, ou `/request/position`,
+envoie une **requête `wantResponse`** au node ciblé (≈ `meshtastic --request-telemetry/--request-position`).
+La réponse arrive **de façon asynchrone** via le mesh → elle **remonte en `[uplink]` MQTT**
+(télémétrie/position du node distant), pas dans la réponse HTTP. Utile pour rafraîchir un node
+distant sans attendre son cycle passif. (Sans `dest`, `/send/telemetry` diffuse le node local.)
 
 `/send/position` **fournit toujours des coordonnées** : sans payload, il **relit la
 position fixe du node** et la ré-émet. C'est volontaire — `sendPosition()` sans coords

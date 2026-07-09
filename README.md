@@ -29,7 +29,8 @@ MeshForge consomme.
 | **V0.3** | Monitoring : sonde SQLite (métriques node + qualité BLE), API + export CSV | ✅ |
 | **V0.4** | Paliers batterie + duty-cycle du lien BLE (adaptatif selon la batterie du node) | ✅ |
 | **V0.5** | Stabilisation du lien BLE sur signal faible (supervision timeout via `hcitool lecup`) | ✅ |
-| **V0.6** | Transports alternatifs (USB-série / WiFi-TCP) si le matériel le permet | ⏳ |
+| **V0.6** | Support **Raspbian Buster** (Python/BlueZ isolés, pin bleak) + **requêtes vers un node distant** | ✅ |
+| **V0.7** | Transports alternatifs (USB-série / WiFi-TCP) si le matériel le permet | ⏳ |
 
 ## API de contrôle (downlink)
 
@@ -37,8 +38,9 @@ Puisque la passerelle **monopolise le BLE** (1 client à la fois), elle est le s
 de parler au node pendant qu'elle tourne. Une **API HTTP à token** (activée si
 `MBG_API_TOKEN` défini) permet d'**envoyer du texte** (canal public ou privé), **de la
 télémétrie**, **de forcer une diffusion de position** (rafraîchir la carte sans attendre le
-cycle de 12 h), et **d'administrer le node** (rôle, intervalles…). Détails, endpoints et
-sécurité : voir [`deploy/README.md`](deploy/README.md).
+cycle de 12 h), **d'interroger un node distant** (requête télémétrie/position `wantResponse`,
+la réponse remonte en `[uplink]` MQTT), et **d'administrer le node** (rôle, intervalles…).
+Détails, endpoints et sécurité : voir [`deploy/README.md`](deploy/README.md).
 
 Les commandes passent par le worker (écriture BLE) ; un write qui gèle est absorbé par
 l'isolation (worker SIGKILL → 503/504). C'est le seul point qui **rompt le « receive-only »**.

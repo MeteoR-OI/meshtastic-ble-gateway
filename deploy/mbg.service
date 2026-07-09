@@ -17,6 +17,9 @@ WatchdogSec=120
 User=mbg
 SupplementaryGroups=bluetooth
 WorkingDirectory=/opt/meshtastic-ble-gateway
+# Raspbian Buster uniquement : bleak lit `bluetoothctl --version` du PATH ; avec le paquet
+# bluez-meshforge (BlueZ 5.55 sous /opt) il faut le mettre en tête du PATH. Inutile sur Bullseye+.
+# Environment=PATH=/opt/bluez-5.55/bin:/usr/local/bin:/usr/bin:/bin
 # Config par variables d'env (cf. src/mbg/config.py). MAC côté BlueZ.
 Environment=MBG_BLE_ADDRESS=E6:E3:53:4B:BE:A5
 Environment=MBG_BROKER_HOST=mqtt-mt.meteor-oi.re
