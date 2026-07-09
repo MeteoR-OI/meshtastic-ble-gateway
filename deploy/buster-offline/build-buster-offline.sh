@@ -46,9 +46,14 @@ dpkg-deb --build --root-owner-group "$PKG" /out/python311-meshforge_${PYV}-1~bus
 cp -a "$PKG/opt/python3.11" /opt/python3.11    # l'installe ici pour construire le wheelhouse avec CE python
 
 # --- 2) Wheelhouse : toutes les deps (pinnées) en wheels armhf/cp311 ---
+# Depuis une COPIE PROPRE du source (exclut .git/.venv/egg-info) : builder depuis une install
+# éditable « live » provoque un conflit egg-info. tar --exclude = copie sélective robuste.
+rm -rf /tmp/src && mkdir -p /tmp/src
+( cd /src && tar --exclude='./.git' --exclude='./.venv' --exclude='*.egg-info' -cf - . ) \
+  | ( cd /tmp/src && tar xf - )
 /opt/python3.11/bin/python3.11 -m venv /tmp/wh
 /tmp/wh/bin/pip install -U pip wheel
-/tmp/wh/bin/pip wheel -w /out/wheelhouse -c /src/constraints.txt /src
+/tmp/wh/bin/pip wheel -w /out/wheelhouse -c /tmp/src/constraints.txt /tmp/src
 cd /out && tar czf wheelhouse-buster-py311.tar.gz wheelhouse && rm -rf wheelhouse
 
 echo "=== Artefacts produits dans /out ==="; ls -l /out
