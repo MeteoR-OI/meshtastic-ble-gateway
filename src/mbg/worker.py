@@ -19,6 +19,7 @@ from .config import Config
 from .mqtt_publisher import PahoPublisher
 from .node import MeshtasticNodeLink
 from .session import run_one_session
+from .storage import MetricsStore
 
 log = logging.getLogger("mbg.worker")
 
@@ -52,6 +53,7 @@ def _worker_body(
     session: Callable = run_one_session,
     publisher_cls=PahoPublisher,
     nodelink_cls=MeshtasticNodeLink,
+    store_cls=MetricsStore,
 ) -> int:
     """Logique testable du worker (sans os._exit / signaux)."""
 
@@ -67,9 +69,21 @@ def _worker_body(
     def nodelink_factory(address, on_proxy, on_lost):
         return nodelink_cls(address, on_proxy, on_lost)
 
+    monitor = None
+    if config.monitor_interval > 0:
+        store = store_cls(config.db_path)
+
+        def monitor(link):
+            if config.force_telemetry:
+                link.send({"type": "telemetry"})  # mesure fraîche (write BLE, peut geler->SIGKILL)
+            data = link.read_metrics()
+            store.record_node(data["node"], data["position"])
+            store.record_neighbors(data["neighbors"])
+
     try:
         session(
-            config, publisher_factory, nodelink_factory, heartbeat, lambda: True, commands=commands
+            config, publisher_factory, nodelink_factory, heartbeat, lambda: True,
+            commands=commands, monitor=monitor,
         )
     except Exception as exc:  # noqa: BLE001 — toute panne = fin de session, le parent respawn
         log.warning("session worker interrompue : %s", exc)

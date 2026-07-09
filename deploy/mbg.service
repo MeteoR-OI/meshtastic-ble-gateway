@@ -29,6 +29,14 @@ Environment=MBG_BROKER_PORT=1883
 # Environment=MBG_API_TOKEN=change-me
 # Environment=MBG_API_HOST=0.0.0.0
 # Environment=MBG_API_PORT=8080
+# Monitoring / sonde (métriques node + qualité BLE) — 0 = désactivé.
+# Prévoir les droits : install -d -o mbg -g mbg /var/lib/mbg (base + CSV).
+# Environment=MBG_MONITOR_INTERVAL=300
+# Environment=MBG_DB_PATH=/var/lib/mbg/metrics.db
+# Environment=MBG_MONITOR_FORCE_TELEMETRY=false
+# Environment=MBG_DUMP_DIR=/var/lib/mbg/csv
+# Environment=MBG_DUMP_INTERVAL=3600
+# Environment=MBG_RETENTION_DAYS=0
 ExecStart=/opt/meshtastic-ble-gateway/.venv/bin/python -m mbg
 # BLE 24/7 peu fiable : on relance toujours (le code reconnecte déjà en interne).
 Restart=always

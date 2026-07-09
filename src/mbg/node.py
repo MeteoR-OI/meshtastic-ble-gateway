@@ -13,6 +13,7 @@ import logging
 import threading
 from typing import Any, Callable, Optional
 
+from . import metrics
 from .control import execute_command
 
 log = logging.getLogger("mbg.node")
@@ -116,6 +117,17 @@ class MeshtasticNodeLink:
         if self._iface is None:
             return False
         return self._liveness(self._iface)
+
+    def read_metrics(self) -> dict:
+        """Relève les métriques du node (device, position, voisins) — sans I/O radio."""
+        info = self._iface.getMyNodeInfo() or {}
+        node = metrics.node_metrics(info)
+        nodes_by_num = getattr(self._iface, "nodesByNum", None) or {}
+        return {
+            "node": node,
+            "position": metrics.position(info),
+            "neighbors": metrics.neighbors(nodes_by_num, info.get("num")),
+        }
 
     def send(self, command: dict) -> dict:
         """Exécute une commande downlink (write BLE). Voir `control`. Suit l'ACK si demandé."""

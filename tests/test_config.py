@@ -17,6 +17,12 @@ ENV_KEYS = [
     "MBG_API_HOST",
     "MBG_API_PORT",
     "MBG_CONTROL_TIMEOUT",
+    "MBG_DB_PATH",
+    "MBG_MONITOR_INTERVAL",
+    "MBG_MONITOR_FORCE_TELEMETRY",
+    "MBG_DUMP_DIR",
+    "MBG_DUMP_INTERVAL",
+    "MBG_RETENTION_DAYS",
 ]
 
 
@@ -37,6 +43,12 @@ def test_defaults_from_empty_env():
     assert c.api_host == "0.0.0.0"
     assert c.api_port == 8080
     assert c.control_timeout == 10.0
+    assert c.db_path == "metrics.db"
+    assert c.monitor_interval == 300.0
+    assert c.force_telemetry is False
+    assert c.dump_dir is None
+    assert c.dump_interval == 3600.0
+    assert c.retention_days == 0.0
 
 
 def test_full_env_override():
@@ -57,6 +69,12 @@ def test_full_env_override():
             "MBG_API_HOST": "127.0.0.1",
             "MBG_API_PORT": "9090",
             "MBG_CONTROL_TIMEOUT": "7",
+            "MBG_DB_PATH": "/data/m.db",
+            "MBG_MONITOR_INTERVAL": "60",
+            "MBG_MONITOR_FORCE_TELEMETRY": "true",
+            "MBG_DUMP_DIR": "/data/csv",
+            "MBG_DUMP_INTERVAL": "1800",
+            "MBG_RETENTION_DAYS": "30",
         }
     )
     assert c.ble_address == "AA:BB:CC"
@@ -74,6 +92,12 @@ def test_full_env_override():
     assert c.api_host == "127.0.0.1"
     assert c.api_port == 9090
     assert c.control_timeout == 7.0
+    assert c.db_path == "/data/m.db"
+    assert c.monitor_interval == 60.0
+    assert c.force_telemetry is True
+    assert c.dump_dir == "/data/csv"
+    assert c.dump_interval == 1800.0
+    assert c.retention_days == 30.0
 
 
 def test_empty_credentials_become_none():

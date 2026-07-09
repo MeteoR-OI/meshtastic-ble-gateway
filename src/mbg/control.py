@@ -78,6 +78,32 @@ def _send_text(iface, command: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
+def _send_position(iface, command: Dict[str, Any]) -> Dict[str, Any]:
+    """Force une diffusion de position.
+
+    PIÈGE : `sendPosition()` sans coordonnées émet 0,0 ET « the device will notice this
+    packet and use it to set its notion of local position » → ça écraserait la position
+    FIXE du node. On fournit donc TOUJOURS des coordonnées : override explicite
+    `{lat, lon, alt}`, sinon la position fixe LUE sur le node (jamais 0,0 par défaut).
+    """
+    lat = command.get("lat")
+    lon = command.get("lon")
+    alt = command.get("alt")
+    if lat is None or lon is None:  # pas d'override complet -> on lit la position du node
+        pos = (iface.getMyNodeInfo() or {}).get("position") or {}
+        lat = pos.get("latitude") if lat is None else lat
+        lon = pos.get("longitude") if lon is None else lon
+        if alt is None:
+            alt = pos.get("altitude")
+    if lat is None or lon is None:
+        return {"ok": False, "error": "position inconnue (ni payload ni node) — refus d'émettre 0,0"}
+    kwargs: Dict[str, Any] = {"channelIndex": 0}
+    if alt is not None:
+        kwargs["altitude"] = int(alt)
+    packet = iface.sendPosition(float(lat), float(lon), **kwargs)
+    return {"ok": True, "detail": f"position émise ({lat},{lon})", "id": getattr(packet, "id", None)}
+
+
 def _apply_admin(iface, setting: Any, value: Any) -> Dict[str, Any]:
     spec = ADMIN_SETTINGS.get(setting)
     if spec is None:
@@ -100,6 +126,8 @@ def execute_command(iface, command: Dict[str, Any]) -> Dict[str, Any]:
         if ctype == "telemetry":
             iface.sendTelemetry()
             return {"ok": True, "detail": "télémétrie envoyée"}
+        if ctype == "position":
+            return _send_position(iface, command)
         if ctype == "admin":
             return _apply_admin(iface, command.get("setting"), command.get("value"))
         return {"ok": False, "error": f"type de commande inconnu: {ctype}"}

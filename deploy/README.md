@@ -84,6 +84,12 @@ journalctl -u mbg -f
 | `MBG_API_HOST` | `0.0.0.0` | interface d'écoute de l'API (ex. `127.0.0.1` pour localhost) |
 | `MBG_API_PORT` | `8080` | port de l'API |
 | `MBG_CONTROL_TIMEOUT` | `10` | attente max d'une réponse worker à une commande (s) |
+| `MBG_DB_PATH` | `metrics.db` | base SQLite des métriques (relative au WorkingDirectory) |
+| `MBG_MONITOR_INTERVAL` | `300` | cadence de relevé des métriques node (s ; `0` = monitoring off) |
+| `MBG_MONITOR_FORCE_TELEMETRY` | – | `true` = `sendTelemetry` avant chaque relevé (mesure fraîche, coûte de l'airtime) |
+| `MBG_DUMP_DIR` | – | répertoire d'export CSV (vide = pas d'export) |
+| `MBG_DUMP_INTERVAL` | `3600` | cadence export CSV + purge (s) |
+| `MBG_RETENTION_DAYS` | `0` | purge des données au-delà de N jours (`0` = pas de purge) |
 
 ## API de contrôle (downlink) — optionnelle
 
@@ -99,6 +105,9 @@ curl -H "X-API-Token: $TOKEN" -d '{"text":"alerte","channel":"Fr_Balise"}' $BASE
 curl -H "X-API-Token: $TOKEN" -d '{"text":"test","channel":"Fr_Balise","want_ack":true}' $BASE/send/text
 # télémétrie :
 curl -H "X-API-Token: $TOKEN" -d '{}' $BASE/send/telemetry
+# forcer une diffusion de position (rafraîchit la carte sans attendre le cycle 12 h) :
+curl -H "X-API-Token: $TOKEN" -X POST $BASE/send/position          # ré-émet la position FIXE du node
+curl -H "X-API-Token: $TOKEN" -d '{"lat":-21.34,"lon":55.47,"alt":120}' $BASE/send/position  # override explicite
 # admin (rôle, intervalles…) :
 curl -H "X-API-Token: $TOKEN" -d '{"setting":"position_broadcast_secs","value":43200}' $BASE/admin
 curl -H "X-API-Token: $TOKEN" $BASE/health
@@ -107,6 +116,11 @@ curl -H "X-API-Token: $TOKEN" $BASE/health
 Réponses : `200` ok, `401` token invalide, `503` aucun worker connecté, `504` timeout
 worker, `400` commande invalide. Réglages admin : `role`, `position_broadcast_secs`,
 `gps_mode`, `device_update_interval` (extensible dans `src/mbg/control.py`).
+
+`/send/position` **fournit toujours des coordonnées** : sans payload, il **relit la
+position fixe du node** et la ré-émet. C'est volontaire — `sendPosition()` sans coords
+émettrait `0,0`, que le firmware **adopterait comme position locale** (il écraserait la
+position fixe). Si le node n'a aucune position connue → `400` (refus d'émettre 0,0).
 
 `want_ack` (optionnel, `/send/text`) demande un **accusé d'émission radio** : la réponse
 HTTP reste immédiate (`ok`), et l'ACK/NAK arrive **plus tard** dans le journal
@@ -118,3 +132,27 @@ implicite (un voisin rebroadcaste le paquet). Toutes les commandes sont tracées
 > **worker (sous-processus) jetable**. Superviseur figé impossible (aucun BLE) → il nourrit
 > `WatchdogSec` en continu ; systemd ne relance que si le superviseur meurt. Voir la section
 > Résilience du README racine.
+
+## Monitoring / sonde (métriques)
+
+Activé si `MBG_MONITOR_INTERVAL > 0`. Le worker relève **la batterie fraîche** (lecture
+active `getMyNodeInfo`, contourne le broadcast 12 h), le voltage, l'utilisation canal/air,
+la position et les **voisins directs + SNR/RSSI radio** ; le superviseur enregistre la
+**qualité du lien BLE** via le **compteur de reconnexions** (`link_quality`). Stockage
+**SQLite** (`MBG_DB_PATH`) — lisible directement par les scripts locaux, exposé par l'API
+et exporté en **CSV** (`MBG_DUMP_DIR`).
+
+> Pas de RSSI absolu du lien BLE : sur BlueZ, `bluetoothd` détient le contrôleur, donc le
+> RSSI d'un lien LE connecté n'est plus exposé (ni `hcitool rssi`, ni `btmgmt conn-info`,
+> ni D-Bus `Device1.RSSI`, même en root) — vérifié terrain. Le **compteur de reconnexions**
+> est le signal de qualité BLE.
+
+```bash
+curl -H "X-API-Token: $TOKEN" $BASE/metrics                 # dernier relevé {node, link}
+curl -H "X-API-Token: $TOKEN" "$BASE/history?since=0&limit=100"   # série node_metrics
+```
+
+Créer les répertoires avec les bons droits pour l'utilisateur `mbg` :
+```bash
+sudo install -d -o mbg -g mbg /var/lib/mbg   # ex. MBG_DB_PATH=/var/lib/mbg/metrics.db, MBG_DUMP_DIR=/var/lib/mbg/csv
+```

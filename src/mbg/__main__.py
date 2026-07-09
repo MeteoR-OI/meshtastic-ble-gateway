@@ -7,17 +7,19 @@ import argparse
 import logging
 import multiprocessing
 import signal
+from dataclasses import replace
 from typing import Optional, Sequence
 
 from . import api
 from .config import Config
 from .process_backend import spawn_worker
+from .storage import MetricsStore
 from .supervisor import Supervisor
 
 log = logging.getLogger("mbg")
 
 
-def _build_serve(config: Config):
+def _build_serve(config: Config, metrics):
     """Renvoie un `serve(submit, should_run)` pour l'API, ou None si pas de token."""
     if not config.api_token:
         return None
@@ -25,7 +27,7 @@ def _build_serve(config: Config):
     def serve(submit, should_run):
         api.serve(
             config.api_host, config.api_port, config.api_token,
-            config.control_timeout, submit, should_run,
+            config.control_timeout, submit, metrics, should_run,
         )
 
     return serve
@@ -52,30 +54,27 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
     )
-    config = Config(
+    # On part de l'ENV et on n'override QUE les champs pilotables par la CLI. Tout le
+    # reste (tuning, API, monitoring, et tout futur champ) se propage automatiquement —
+    # évite le bug récurrent « champ oublié dans la reconstruction de Config ».
+    config = replace(
+        env_config,
         ble_address=args.ble,
         broker_host=args.broker,
         broker_port=args.port,
         broker_username=args.username,
         broker_password=args.password,
-        reconnect_delay=env_config.reconnect_delay,
-        max_reconnect_delay=env_config.max_reconnect_delay,
-        poll_interval=env_config.poll_interval,
-        supervisor_tick=env_config.supervisor_tick,
-        connect_grace=env_config.connect_grace,
-        alive_timeout=env_config.alive_timeout,
-        api_token=env_config.api_token,
-        api_host=env_config.api_host,
-        api_port=env_config.api_port,
-        control_timeout=env_config.control_timeout,
     )
 
     # Le BLE tourne dans un sous-processus jetable ; le superviseur (ce process) ne
     # touche jamais au BLE, donc ne fige jamais. L'API de contrôle (si token) tourne
     # dans un thread du superviseur.
     ctx = multiprocessing.get_context("fork")
+    # Store côté superviseur (record_link + export + lectures API). Le worker a le sien
+    # (écriture node_metrics/neighbors) — même fichier SQLite, mode WAL.
+    store = MetricsStore(config.db_path) if config.monitor_interval > 0 else None
     supervisor = Supervisor(
-        config, lambda: spawn_worker(config, ctx), serve=_build_serve(config)
+        config, lambda: spawn_worker(config, ctx), serve=_build_serve(config, store), store=store
     )
 
     stop = {"flag": False}

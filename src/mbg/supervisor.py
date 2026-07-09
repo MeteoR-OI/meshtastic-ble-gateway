@@ -48,6 +48,7 @@ class Supervisor:
         clock: Callable[[], float] = time.monotonic,
         notify: Notify = sd_notify,
         serve: Optional[Serve] = None,
+        store=None,
     ) -> None:
         self._config = config
         self._spawn = spawn
@@ -55,6 +56,7 @@ class Supervisor:
         self._clock = clock
         self._notify = notify
         self._serve = serve
+        self._store = store
         self._lock = threading.Lock()
         self._current = None  # worker courant, exposé à l'API
 
@@ -75,19 +77,29 @@ class Supervisor:
         with self._lock:
             self._current = worker
 
+    def _maintenance(self, should_run: Callable[[], bool]) -> None:
+        """Thread : purge + export CSV périodiques de la base de métriques."""
+        while should_run():
+            self._sleep(self._config.dump_interval)
+            if self._config.retention_days > 0:
+                self._store.prune(self._config.retention_days * 86400)
+            if self._config.dump_dir:
+                self._store.export_csv(self._config.dump_dir)
+
     # --- Boucle de supervision ---
     def run(self, should_continue: Callable[[], bool]) -> None:
         self._notify("READY=1")
-        server_stop = threading.Event()
+        stop = threading.Event()
+        should_run = lambda: not stop.is_set()  # noqa: E731
         if self._serve is not None:
             threading.Thread(
-                target=self._serve,
-                args=(self.submit, lambda: not server_stop.is_set()),
-                name="mbg-api",
-                daemon=True,
+                target=self._serve, args=(self.submit, should_run), name="mbg-api", daemon=True
             ).start()
+        if self._store is not None and (self._config.dump_dir or self._config.retention_days > 0):
+            threading.Thread(target=self._maintenance, args=(should_run,), name="mbg-maint", daemon=True).start()
         try:
             delay = self._config.reconnect_delay
+            reconnects = 0
             while should_continue():
                 worker = self._spawn()
                 self._set_current(worker)
@@ -96,13 +108,16 @@ class Supervisor:
                 self._set_current(None)
                 if not should_continue():
                     break  # arrêt demandé
+                reconnects += 1
+                if self._store is not None:
+                    self._store.record_link(reconnects)  # timeline des reconnexions (qualité BLE)
                 if productive:  # le worker s'était connecté -> on repart au délai de base
                     delay = self._config.reconnect_delay
                 log.info("respawn du worker dans %ss", delay)
                 self._sleep(delay)
                 delay = min(delay * 2, self._config.max_reconnect_delay)
         finally:
-            server_stop.set()
+            stop.set()
 
     def _supervise(self, worker, should_continue: Callable[[], bool]) -> bool:
         """Surveille jusqu'à fin/gel. Renvoie True si le worker s'était connecté (beats>0)."""

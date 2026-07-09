@@ -4,8 +4,9 @@
 
 `handle_request` est **pur** (auth token + routage + validation) → testable à
 100 %. `serve` est l'adaptateur socket/thread (frontière OS, testé en intégration).
-Auth par en-tête `X-API-Token`. Routes : POST /send/text, /send/telemetry, /admin ;
-GET /health. Les commandes sont relayées au worker via `dispatch` (déjà borné en
+Auth par en-tête `X-API-Token`. Routes : POST /send/text, /send/telemetry,
+/send/position, /admin ; GET /health, /metrics, /history. Les commandes POST sont
+relayées au worker via `dispatch` (déjà borné en
 timeout) qui renvoie `{"ok": bool, ...}`.
 """
 from __future__ import annotations
@@ -14,6 +15,7 @@ import hmac
 import json
 import logging
 from typing import Any, Callable, Dict, Optional, Tuple
+from urllib.parse import parse_qs, urlparse
 
 log = logging.getLogger("mbg.api")
 
@@ -34,6 +36,9 @@ def _command_for(path: str, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]
         }
     if path == "/send/telemetry":
         return {"type": "telemetry", "dest": payload.get("dest")}
+    if path == "/send/position":
+        # lat/lon/alt optionnels : absents -> ré-émet la position FIXE du node (jamais 0,0).
+        return {"type": "position", "lat": payload.get("lat"), "lon": payload.get("lon"), "alt": payload.get("alt")}
     if path == "/admin":
         return {"type": "admin", "setting": payload.get("setting"), "value": payload.get("value")}
     return None
@@ -50,6 +55,24 @@ def _status_for(result: Dict[str, Any]) -> int:
     return 400
 
 
+def _handle_get(route: str, query: str, metrics) -> Tuple[int, Dict[str, Any]]:
+    if route == "/health":
+        return 200, {"ok": True, "status": "up"}
+    if route in ("/metrics", "/history"):
+        if metrics is None:
+            return 404, {"ok": False, "error": "monitoring désactivé"}
+        if route == "/metrics":
+            return 200, metrics.latest()
+        params = parse_qs(query)
+        try:
+            since = float(params.get("since", ["0"])[0])
+            limit = int(params.get("limit", ["1000"])[0])
+        except ValueError:
+            return 400, {"ok": False, "error": "paramètres invalides"}
+        return 200, {"rows": metrics.history(since, limit)}
+    return 404, {"ok": False, "error": "route inconnue"}
+
+
 def handle_request(
     method: str,
     path: str,
@@ -57,18 +80,20 @@ def handle_request(
     body: str,
     token: str,
     dispatch: Callable[[Dict[str, Any]], Dict[str, Any]],
+    metrics=None,
 ) -> Tuple[int, Dict[str, Any]]:
-    """Traite une requête (pur). `dispatch(command)` relaie au worker et renvoie le résultat."""
+    """Traite une requête (pur). `dispatch` relaie au worker ; `metrics` lit la base (GET)."""
     if not _authorized(headers, token):
         return 401, {"ok": False, "error": "non autorisé"}
-    if method == "GET" and path == "/health":
-        return 200, {"ok": True, "status": "up"}
+    parsed = urlparse(path)
+    if method == "GET":
+        return _handle_get(parsed.path, parsed.query, metrics)
     if method == "POST":
         try:
             payload = json.loads(body) if body else {}
         except ValueError:
             return 400, {"ok": False, "error": "JSON invalide"}
-        command = _command_for(path, payload)
+        command = _command_for(parsed.path, payload)
         if command is None:
             return 404, {"ok": False, "error": "route inconnue"}
         result = dispatch(command)
@@ -76,7 +101,7 @@ def handle_request(
     return 404, {"ok": False, "error": "route inconnue"}
 
 
-def serve(host, port, token, timeout, submit, should_run) -> None:  # pragma: no cover — socket/thread
+def serve(host, port, token, timeout, submit, metrics, should_run) -> None:  # pragma: no cover — socket/thread
     """Boucle serveur HTTP jusqu'à ce que should_run() soit faux (frontière OS)."""
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -87,7 +112,7 @@ def serve(host, port, token, timeout, submit, should_run) -> None:  # pragma: no
         def _handle(self, method):
             length = int(self.headers.get("Content-Length") or 0)
             body = self.rfile.read(length).decode() if length else ""
-            status, payload = handle_request(method, self.path, self.headers, body, token, dispatch)
+            status, payload = handle_request(method, self.path, self.headers, body, token, dispatch, metrics)
             data = json.dumps(payload).encode()
             self.send_response(status)
             self.send_header("Content-Type", "application/json")

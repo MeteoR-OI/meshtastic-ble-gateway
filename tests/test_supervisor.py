@@ -203,6 +203,75 @@ def test_submit_admin_command_and_error_result():
     assert r["ok"] is False
 
 
+class FakeStore:
+    def __init__(self):
+        self.links = []
+        self.pruned = []
+        self.exported = []
+
+    def record_link(self, reconnects):
+        self.links.append(reconnects)
+
+    def prune(self, seconds):
+        self.pruned.append(seconds)
+
+    def export_csv(self, directory):
+        self.exported.append(directory)
+
+
+def test_record_link_on_respawn():
+    store = FakeStore()
+    workers = []
+    step = {"n": 0}
+
+    def spawn():
+        w = FakeWorkerHandle()
+        workers.append(w)
+        return w
+
+    def sleep_(s):
+        step["n"] += 1
+        if step["n"] == 1:
+            workers[-1].alive = False  # sort non-productif -> respawn
+
+    Supervisor(
+        Config(supervisor_tick=1, reconnect_delay=5), spawn, sleep=sleep_,
+        clock=Clock(), notify=lambda _: None, store=store,
+    ).run(seq([True, True, True, False]))
+    assert store.links == [1]  # une reconnexion enregistrée
+
+
+def test_maintenance_prunes_and_exports():
+    store = FakeStore()
+    sup = Supervisor(
+        Config(dump_dir="/x", retention_days=2), lambda: None,
+        sleep=lambda s: None, clock=lambda: 0.0, notify=lambda _: None, store=store,
+    )
+    ticks = iter([True, False])
+    sup._maintenance(lambda: next(ticks))
+    assert store.pruned == [2 * 86400] and store.exported == ["/x"]
+
+
+def test_maintenance_without_dump_or_retention():
+    store = FakeStore()
+    sup = Supervisor(
+        Config(dump_dir=None, retention_days=0), lambda: None,
+        sleep=lambda s: None, clock=lambda: 0.0, notify=lambda _: None, store=store,
+    )
+    ticks = iter([True, False])
+    sup._maintenance(lambda: next(ticks))
+    assert store.pruned == [] and store.exported == []
+
+
+def test_run_starts_maintenance_thread():
+    store = FakeStore()
+    sup = Supervisor(
+        Config(dump_dir="/x", dump_interval=1), lambda: FakeWorkerHandle(),
+        sleep=lambda s: None, clock=lambda: 0.0, notify=lambda _: None, store=store,
+    )
+    sup.run(lambda: False)  # démarre le thread de maintenance puis sort aussitôt
+
+
 def test_run_starts_api_server_thread():
     done = threading.Event()
     captured = {}

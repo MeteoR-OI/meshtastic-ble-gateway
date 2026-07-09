@@ -33,6 +33,8 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
 
 - `config.py` — `Config` (dataclass) + `from_env()` (`MBG_*`). Champs de tuning :
   `supervisor_tick`, `connect_grace`, `alive_timeout`, `reconnect_delay`/`max_reconnect_delay`.
+  Monitoring : `db_path`, `monitor_interval` (0=off), `force_telemetry`, `dump_dir`,
+  `dump_interval`, `retention_days`.
 - `proxy.py` — `Proxy.on_proxy_message` : republie au broker, ne crashe jamais.
 - `mqtt_publisher.py` — `PahoPublisher` (adaptateur paho, `client_factory` injectable).
 - `node.py` — `MeshtasticNodeLink` : connexion BLE + pubsub (proxy + lost) + sonde
@@ -49,17 +51,37 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
   le watchdog systemd (`sd_notify`). Testé avec un faux spawn (aucun vrai process).
 - `systemd_notify.py` — `sd_notify` (watchdog, sans dépendance).
 - `control.py` — `execute_command(iface, command)` : traduit une commande (text/telemetry/
-  admin) en appel meshtastic. Ne lève jamais. Whitelist admin extensible. Pour `want_ack`,
-  renvoie `packet_id` (le node corrèle l'ACK).
+  position/admin) en appel meshtastic. Ne lève jamais. Whitelist admin extensible. Pour
+  `want_ack`, renvoie `packet_id` (le node corrèle l'ACK). **`position`** ré-émet TOUJOURS
+  des coordonnées (override `{lat,lon,alt}` ou position fixe lue sur le node) — jamais 0,0,
+  que le firmware adopterait comme position locale (écraserait la position fixe).
 - **ACK radio (want_ack)** : `sendText(onResponse=…)` est **CASSÉ** en meshtastic BLE 2.7.10
   (le handler ne matche pas le requestId — prouvé py-spy/capture). ⇒ on ne s'y fie PAS :
   `node` s'abonne à `meshtastic.receive`, corrèle un `ROUTING_APP` entrant dont le
   `requestId` == l'id d'un paquet `want_ack` envoyé, et logue `[downlink] ACK … → reçu/échec`
   (+ timeout de repli). Broadcast = ACK implicite (ROUTING_APP from self), même chemin.
-- `api.py` — `handle_request(...)` **pur** (auth token + routage) + `serve(...)` (adaptateur
-  `http.server`, pragma/intégration). API downlink OPT-IN (token).
-- `__main__.py` — CLI. **L'ENV est la base de la config, la CLI override.** Câble le
-  superviseur avec `spawn_worker` + `get_context("fork")` + `_build_serve` (API si token).
+- `api.py` — `handle_request(...)` **pur** (auth token + routage POST downlink via `dispatch`
+  + GET monitoring via `metrics`) + `serve(...)` (adaptateur `http.server`, pragma/intégration).
+  API OPT-IN (token). GET `/metrics`, `/history` lisent le store ; POST `/send/*`, `/admin`.
+- **Monitoring / sonde (V0.3)** — `storage.py` : `MetricsStore` (SQLite stdlib, mode **WAL** →
+  2 écrivains multi-process ; tables `node_metrics`/`neighbors`/`link_quality` ; `record_*`,
+  `latest`, `history`, `prune`, `export_csv`). Connexion bornée par un context manager
+  `_conn` (toujours fermée → pas de fuite). `metrics.py` : lecteurs **purs** (`node_metrics`,
+  `position`, `neighbors` 0-hop avec SNR/RSSI radio) depuis un fake iface. Le **worker**
+  écrit node_metrics/neighbors (monitor injecté dans `run_one_session`) : **un relevé tôt
+  dans chaque session** (dès le lien établi) **puis** à la cadence `monitor_interval` — sinon,
+  lien instable oblige (sessions < `monitor_interval`), le tic périodique ne tomberait jamais
+  et node_metrics resterait vide (bug terrain 2026-07-08). Le **superviseur** écrit
+  link_quality sur événement (compteur reconnexions, indépendant de la longévité de session) + thread
+  d'export CSV/purge. Lecture batterie ACTIVE (`getMyNodeInfo`) → contourne le broadcast 12 h.
+  **Pas de RSSI du lien BLE** : vérifié sur MHA235/BlueZ 5.55, `bluetoothd` détient hci0 →
+  ni HCI Read RSSI, ni mgmt Get Conn Info, ni D-Bus Device1.RSSI ne donnent de valeur sur un
+  lien LE connecté (même en root) sans couper la passerelle. Le **signal de qualité BLE = le
+  compteur de reconnexions** (`link_quality`).
+- `__main__.py` — CLI. **L'ENV est la base de la config, la CLI override** (via
+  `dataclasses.replace` : on n'override QUE les champs CLI → tout futur champ se propage seul,
+  fin du bug « champ oublié »). Câble le superviseur avec `spawn_worker` + `get_context("fork")`
+  + `_build_serve` (API si token) + le `MetricsStore` (si `monitor_interval > 0`).
 - **Downlink** : API (thread du superviseur) → `Supervisor.submit` (worker connecté sinon
   503) → queue → worker → `link.send()` → `control.execute_command`. Un write qui gèle →
   worker SIGKILL (isolation). C'est le SEUL point qui rompt le « receive-only ».
@@ -86,7 +108,7 @@ Les arguments CLI ne servent qu'en usage manuel/PoC et priment s'ils sont fourni
 
 - **V0.1** (fait) : passerelle (forward opaque + résilience par isolation de process).
 - **V0.2** (fait) : API de contrôle / downlink (texte, télémétrie, admin node).
-- **V0.3** : monitoring — stockage SQLite local des infos node (base de la « sonde »).
+- **V0.3** (fait) : monitoring — sonde SQLite (métriques node + qualité BLE), API + export CSV.
 - **V0.4** : paliers batterie + duty-cycle du lien BLE (seuils dans le README).
 
 ## Conventions
