@@ -36,10 +36,10 @@ Pi Buster installent hors-ligne en minutes.
 ## Installer sur le Pi Buster (hors-ligne)
 
 ```bash
-# 1) Python 3.11 isolé + BlueZ 5.55
-sudo dpkg -i python311-meshforge_3.11.9-1~buster_armhf.deb
-sudo dpkg -i bluez-meshforge_5.55-1~buster_armhf.deb        # cf. ../bluez-buster/
-python3 --version                                            # <- toujours 3.7 (système intact)
+# 1) Python 3.11 isolé + BlueZ 5.55  (glob : GitHub renomme ~ -> . dans les assets)
+sudo dpkg -i python311-meshforge_*.deb
+sudo dpkg -i bluez-meshforge_*.deb        # cf. ../bluez-buster/
+python3 --version                          # <- toujours 3.7 (système intact)
 
 # 2) passerelle : venv depuis le python isolé + install depuis le wheelhouse (zéro compilation)
 cd /opt/meshtastic-ble-gateway
@@ -49,7 +49,7 @@ sudo .venv/bin/pip install --no-index --find-links wheelhouse -e . -c constraint
 ```
 
 `--no-index` garantit qu'**aucune** dépendance n'est téléchargée/compilée : tout vient du
-wheelhouse. Poursuivre ensuite au §2 (systemd) du `deploy/README.md`.
+wheelhouse. Poursuivre ensuite au [service systemd](../../docs/installation.md#3-service-systemd).
 
 ## Notes
 
