@@ -47,7 +47,7 @@ Détails : [api.md](api.md).
 | Variable | Défaut | Rôle |
 |---|---|---|
 | `MBG_DB_PATH` | `metrics.db` | base SQLite (relative au `WorkingDirectory`) |
-| `MBG_MONITOR_INTERVAL` | `300` | cadence de relevé des métriques node (s ; `0` = off) |
+| `MBG_MONITOR_INTERVAL` | `300` | cadence de relevé des métriques node (s ; `0` = off). ⚠️ **ignoré si `MBG_BATTERY_TIERS` est actif** → la cadence suit alors le palier (15/30/60 min) |
 | `MBG_MONITOR_FORCE_TELEMETRY` | – | `true` = `sendTelemetry` avant chaque relevé (mesure fraîche, coûte de l'airtime) |
 | `MBG_DUMP_DIR` | – | répertoire d'export CSV (vide = pas d'export) |
 | `MBG_DUMP_INTERVAL` | `3600` | cadence export CSV + purge (s) |
@@ -59,7 +59,7 @@ Détails : [monitoring.md](monitoring.md).
 
 | Variable | Défaut | Rôle |
 |---|---|---|
-| `MBG_BATTERY_TIERS` | – | `true` = cadence adaptative + duty-cycle selon la batterie (**nécessite le monitoring**) |
+| `MBG_BATTERY_TIERS` | – | `true` = cadence adaptative + duty-cycle selon la batterie (**nécessite le monitoring**). **Remplace `MBG_MONITOR_INTERVAL`** par la cadence du palier (15/30/60 min) |
 | `MBG_DUTY_ON` | `300` | palier < 25 % : durée de la fenêtre de connexion (s) |
 | `MBG_DUTY_OFF` | `1800` | palier < 25 % : durée de déconnexion entre fenêtres (s) |
 | `MBG_TIER_HYSTERESIS` | `3` | marge (%) anti-flapping entre paliers |

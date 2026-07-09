@@ -7,7 +7,8 @@ dépendance, mode WAL) les métriques du node **et** la qualité du lien BLE —
 Point clé : **lecture batterie ACTIVE** locale (`getMyNodeInfo`), qui **contourne le broadcast
 télémétrie de 12 h** du node → mesure toujours fraîche. Un relevé est fait **tôt dans chaque
 session** puis à la cadence `MBG_MONITOR_INTERVAL` (robuste au churn : sur lien instable, les
-sessions peuvent être plus courtes que la cadence).
+sessions peuvent être plus courtes que la cadence). Si les [paliers batterie](battery-tiers.md)
+sont actifs, la cadence suit **le palier** (15/30/60 min) et non `MBG_MONITOR_INTERVAL`.
 
 ## Métriques collectées
 

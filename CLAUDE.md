@@ -94,7 +94,8 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
   avec hystérésis **collante vers le haut** (descente au seuil nominal, remontée à seuil+hyst →
   anti-flapping). Opt-in (`MBG_BATTERY_TIERS`, défaut off) + nécessite le monitoring (source
   batterie) ; sinon `__main__` loggue un WARNING et désactive. Tout vit dans le **superviseur** :
-  `_plan_tier()` (lit `store.latest()` batterie), `_effective_config()` (cadence du palier ;
+  `_plan_tier()` (lit `store.latest()` batterie), `_effective_config()` (cadence du palier **qui
+  écrase `MBG_MONITOR_INTERVAL`** — 15/30/60 min ; tiers ON = monitoring plus lent que le défaut 300 s ;
   `force_telemetry=True` **au changement de mode** → l'early-sample diffuse la batterie sur le
   mesh), et le **duty-cycle < 25 %** (fenêtre ON bornée à `duty_on` dans `_supervise`, puis
   `_wait(duty_off)`). ⚠️ **`_wait` est watchdog-friendly** : le OFF (>> `WatchdogSec`) doit

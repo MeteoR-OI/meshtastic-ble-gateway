@@ -14,6 +14,11 @@ lien, pour préserver **la batterie du node** (un lien BLE permanent empêche so
 | ≥ 25 % | 60 min | connecté, proxy live |
 | < 25 % | 1 relevé / fenêtre | **duty-cycle** : ON `MBG_DUTY_ON` (5 min) / OFF `MBG_DUTY_OFF` (30 min) |
 
+> ⚠️ Quand les paliers sont actifs, **`MBG_MONITOR_INTERVAL` est ignoré** : la cadence de relevé
+> suit le palier ci-dessus. Activer les paliers **ralentit donc le monitoring** (15 min au mieux)
+> par rapport au défaut de 300 s — c'est volontaire (économie d'énergie). Les intervalles sont des
+> constantes dans [`src/mbg/tiers.py`](../src/mbg/tiers.py).
+
 ## Comportement
 
 - **Duty-cycle (< 25 %)** : le lien est **volontairement coupé** pendant le OFF (le node peut
