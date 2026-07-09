@@ -28,6 +28,9 @@ coverage.xml
 # Runbooks opérationnels MHA (RPi) — locaux, non versionnés (traçabilité côté ops)
 deploy/runbook-*.md
 
+# Contexte terrain spécifique (stations/MAC/broker) — local, non versionné
+CLAUDE.local.md
+
 # OS / éditeurs
 .DS_Store
 .idea/

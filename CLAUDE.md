@@ -3,6 +3,9 @@
 Pont **BLE → MQTT** pour faire remonter un node Meshtastic **BT-only** dans
 [MeshForge](https://github.com/Robin-Lune/meshforge). Hébergé sur un Raspberry Pi.
 
+> Ce fichier reste **agnostique**. Le **contexte terrain concret** (stations, MAC, broker,
+> accès, historique de validation) vit dans **`CLAUDE.local.md`** (non versionné, gitignoré).
+
 ## Ce qui est vrai (ne pas re-débattre)
 
 - **Mécanisme = MQTT Client Proxy over BLE**, validé empiriquement sur un T114 réel
@@ -51,7 +54,7 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
   le watchdog systemd (`sd_notify`). Testé avec un faux spawn (aucun vrai process).
   **`_kill` = SIGKILL + join PUIS `disconnect` bluez forcé du node (v0.6.1)** : un worker gelé
   ne ferme pas l'ACL → `bluetoothd` garde `Connected: yes` → le node cesse d'émettre → le
-  respawn ne le retrouve pas (boucle ∞, churn terrain CHAR645). Le teardown doit venir du
+  respawn ne le retrouve pas (boucle ∞, churn observé en prod). Le teardown doit venir du
   superviseur ; défaut = `bluetoothctl disconnect <MAC>` **borné par `timeout` subprocess** (ne
   gèle jamais le superviseur ; plus sûr qu'un D-Bus in-process). Seam `disconnect` injectable.
 - `systemd_notify.py` — `sd_notify` (watchdog, sans dépendance).
@@ -82,7 +85,7 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
   et node_metrics resterait vide (bug terrain 2026-07-08). Le **superviseur** écrit
   link_quality sur événement (compteur reconnexions, indépendant de la longévité de session) + thread
   d'export CSV/purge. Lecture batterie ACTIVE (`getMyNodeInfo`) → contourne le broadcast 12 h.
-  **Pas de RSSI du lien BLE** : vérifié sur MHA235/BlueZ 5.55, `bluetoothd` détient hci0 →
+  **Pas de RSSI du lien BLE** : vérifié en prod (BlueZ 5.55), `bluetoothd` détient hci0 →
   ni HCI Read RSSI, ni mgmt Get Conn Info, ni D-Bus Device1.RSSI ne donnent de valeur sur un
   lien LE connecté (même en root) sans couper la passerelle. Le **signal de qualité BLE = le
   compteur de reconnexions** (`link_quality`).
@@ -127,7 +130,7 @@ Les arguments CLI ne servent qu'en usage manuel/PoC et priment s'ils sont fourni
 ⚠️ Ne jamais reconstruire la config uniquement depuis argparse (bug historique : l'ENV
 était ignorée, le service bouclait sur `localhost`).
 
-## Tests & vérification (standard MeteoR-OI)
+## Tests & vérification (standard du projet)
 
 - **100 % branch coverage** obligatoire (`pytest`, config dans `pyproject.toml`). Fakes
   dans `tests/fakes.py`. Le PoC (`poc/`) est exclu (spike matériel).
@@ -136,9 +139,9 @@ Les arguments CLI ne servent qu'en usage manuel/PoC et priment s'ils sont fourni
 - **Plancher Python = 3.9** (`requires-python>=3.9`) car **meshtastic 2.7.x exige ≥3.9** (la
   dernière meshtastic supportant 3.7 est 2.3.11, trop ancienne). Sur **Raspbian 10 (Buster)**
   dont le python système est en 3.7, on **n'abaisse PAS** le code : on installe un Python 3.9+
-  **isolé** (altinstall/pyenv, jamais le python système) — cf. `deploy/README.md`. Compat du
+  **isolé** (altinstall/pyenv, jamais le python système) — cf. `docs/installation.md`. Compat du
   userland Buster vérifiée en conteneur `python:3.9-buster` (deps + tests OK).
-- **Buster = deux pièges BLE en plus (V0.6, validés terrain CHAR645)** : (1) **BlueZ 5.50 < 5.55**
+- **Buster = deux pièges BLE en plus (V0.6, validés en prod sur Buster)** : (1) **BlueZ 5.50 < 5.55**
   → **pas de notifications GATT** (connexion OK, zéro donnée) → installer le paquet vendorisé
   `bluez-meshforge` (BlueZ 5.55 sous `/opt`, `deploy/bluez-buster/`) + PATH du service vers
   `/opt/bluez-5.55/bin` (bleak lit `bluetoothctl --version`). (2) **bleak non pinné** (dep
