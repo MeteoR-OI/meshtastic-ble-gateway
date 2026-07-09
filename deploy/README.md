@@ -90,6 +90,10 @@ journalctl -u mbg -f
 | `MBG_DUMP_DIR` | – | répertoire d'export CSV (vide = pas d'export) |
 | `MBG_DUMP_INTERVAL` | `3600` | cadence export CSV + purge (s) |
 | `MBG_RETENTION_DAYS` | `0` | purge des données au-delà de N jours (`0` = pas de purge) |
+| `MBG_BATTERY_TIERS` | – | `true` = cadence adaptative + duty-cycle selon la batterie (nécessite le monitoring) |
+| `MBG_DUTY_ON` | `300` | palier < 25 % : durée de la fenêtre de connexion (s) |
+| `MBG_DUTY_OFF` | `1800` | palier < 25 % : durée de déconnexion entre fenêtres (s) |
+| `MBG_TIER_HYSTERESIS` | `3` | marge (%) anti-flapping entre paliers |
 
 ## API de contrôle (downlink) — optionnelle
 
@@ -156,3 +160,27 @@ Créer les répertoires avec les bons droits pour l'utilisateur `mbg` :
 ```bash
 sudo install -d -o mbg -g mbg /var/lib/mbg   # ex. MBG_DB_PATH=/var/lib/mbg/metrics.db, MBG_DUMP_DIR=/var/lib/mbg/csv
 ```
+
+## Paliers batterie + duty-cycle (V0.4) — optionnel
+
+Activé si `MBG_BATTERY_TIERS=true` (**nécessite le monitoring** comme source de batterie ;
+sinon un WARNING est loggé et l'option est ignorée). Le superviseur lit la dernière batterie
+du node et **adapte le comportement** pour préserver **la batterie du node** (un lien BLE
+permanent empêche son light-sleep) :
+
+| Batterie | Cadence de relevé | Lien BLE |
+|---|---|---|
+| ≥ 75 % | 15 min | live (proxy) |
+| ≥ 50 % | 30 min | live |
+| ≥ 25 % | 60 min | live |
+| < 25 % | 1 relevé / fenêtre | **duty-cycle** : ON `MBG_DUTY_ON` (5 min) / OFF `MBG_DUTY_OFF` (30 min) |
+
+- **Duty-cycle (< 25 %)** : le lien est **coupé** pendant le OFF (le node dort) → **uplinks
+  perdus** sur la fenêtre (trous de flux **assumés**). Le OFF est **watchdog-friendly** (il
+  dépasse `WatchdogSec` : le superviseur continue de nourrir systemd, pas de faux redémarrage).
+  Pendant le OFF, `GET /metrics` reste servi mais l'API de contrôle renvoie `503`.
+- **Hystérésis** (`MBG_TIER_HYSTERESIS`, 3 %) : descente au seuil nominal, remontée seulement
+  au-delà de seuil + hystérésis → pas de flapping (surtout autour du seuil critique 25 %).
+- **Télémétrie au changement de mode** : à chaque transition de palier, la session suivante
+  force un `sendTelemetry` (broadcast) → la batterie fraîche est **diffusée sur le mesh**.
+- Contrainte : garder `MBG_MAX_RECONNECT_DELAY` < `WatchdogSec` (défaut 30 < 120).

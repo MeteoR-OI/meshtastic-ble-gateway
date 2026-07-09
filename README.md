@@ -27,7 +27,7 @@ MeshForge consomme.
 | **V0.1** | Passerelle durcie (`src/mbg/`, tests 100 %, CI, Docker, systemd) — déploiement RPi | ✅ |
 | **V0.2** | API de contrôle / downlink (envoi texte, télémétrie, admin node) | ✅ |
 | **V0.3** | Monitoring : sonde SQLite (métriques node + qualité BLE), API + export CSV | ✅ |
-| **V0.4** | Paliers batterie + duty-cycle du lien BLE | à venir |
+| **V0.4** | Paliers batterie + duty-cycle du lien BLE (adaptatif selon la batterie du node) | ✅ |
 
 ## API de contrôle (downlink)
 
@@ -114,12 +114,27 @@ docker compose -f poc/docker-compose.yml up -d && pytest tests/integration --no-
 
 ### Paliers batterie (V0.4)
 
+**Opt-in** (`MBG_BATTERY_TIERS=true`, nécessite le monitoring). Le superviseur lit la batterie
+du node (sonde V0.3) et adapte le comportement — plus la batterie baisse, moins on sollicite
+le lien, pour préserver **la batterie du node** (un lien BLE permanent empêche son light-sleep).
+
 | Batterie | Monitoring | Lien BLE / proxy |
 |----------|-----------|------------------|
-| > 75 % | poll 15 min | connecté, proxy live |
-| > 50 % | poll 30 min | connecté, proxy live |
-| > 25 % | poll 60 min | connecté, proxy live |
-| < 25 % | 1 poll/fenêtre | duty-cycle 5 min / 30 min (⚠️ trous de flux assumés) |
+| ≥ 75 % | relevé 15 min | connecté, proxy live |
+| ≥ 50 % | relevé 30 min | connecté, proxy live |
+| ≥ 25 % | relevé 60 min | connecté, proxy live |
+| < 25 % | 1 relevé/fenêtre | **duty-cycle** `MBG_DUTY_ON` 5 min / `MBG_DUTY_OFF` 30 min (⚠️ trous de flux assumés) |
+
+- **Duty-cycle (< 25 %)** : le lien est **volontairement coupé** pendant le OFF (le node peut
+  dormir) → uplinks perdus sur cette fenêtre. Le OFF est une attente **watchdog-friendly** (il
+  dépasse `WatchdogSec`, donc le superviseur continue de pinger systemd). Pendant le OFF,
+  `/metrics` reste servi mais l'API de contrôle renvoie `503` (aucun worker).
+- **Hystérésis** (`MBG_TIER_HYSTERESIS`, 3 % par défaut) : on descend d'un palier au seuil
+  nominal mais on ne remonte qu'après seuil + hystérésis → pas de flapping (surtout autour du
+  seuil critique 25 %).
+- **Télémétrie au changement de mode** : à chaque transition de palier, la session suivante
+  **force un `sendTelemetry`** (broadcast) → la batterie fraîche est diffusée sur le mesh /
+  MeshForge, annonçant le changement. Détails/variables : [`deploy/README.md`](deploy/README.md).
 
 ## Mécanisme retenu
 

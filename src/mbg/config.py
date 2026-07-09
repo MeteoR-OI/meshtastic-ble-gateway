@@ -37,6 +37,11 @@ class Config:
     dump_dir: Optional[str] = None  # répertoire d'export CSV (None = pas d'export)
     dump_interval: float = 3600.0  # cadence d'export CSV + purge (s)
     retention_days: float = 0.0  # purge au-delà de N jours (0 = pas de purge)
+    # Paliers batterie + duty-cycle (V0.4). Opt-in ; nécessite le monitoring (source batterie).
+    battery_tiers: bool = False  # active la cadence adaptative + le duty-cycle < 25 %
+    duty_on: float = 300.0  # palier critique : durée de la fenêtre de connexion (s)
+    duty_off: float = 1800.0  # palier critique : durée de déconnexion entre fenêtres (s)
+    tier_hysteresis: float = 3.0  # marge (%) anti-flapping entre paliers
 
     @classmethod
     def from_env(cls, env: Optional[Mapping[str, str]] = None) -> "Config":
@@ -64,4 +69,8 @@ class Config:
             dump_dir=src.get("MBG_DUMP_DIR") or None,
             dump_interval=float(src.get("MBG_DUMP_INTERVAL", "3600")),
             retention_days=float(src.get("MBG_RETENTION_DAYS", "0")),
+            battery_tiers=src.get("MBG_BATTERY_TIERS", "").lower() in ("1", "true", "yes"),
+            duty_on=float(src.get("MBG_DUTY_ON", "300")),
+            duty_off=float(src.get("MBG_DUTY_OFF", "1800")),
+            tier_hysteresis=float(src.get("MBG_TIER_HYSTERESIS", "3")),
         )

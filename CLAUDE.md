@@ -78,6 +78,18 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
   ni HCI Read RSSI, ni mgmt Get Conn Info, ni D-Bus Device1.RSSI ne donnent de valeur sur un
   lien LE connecté (même en root) sans couper la passerelle. Le **signal de qualité BLE = le
   compteur de reconnexions** (`link_quality`).
+- **Paliers batterie + duty-cycle (V0.4)** — `tiers.py` : constantes nommées (seuils 75/50/25 %,
+  cadences 15/30/60 min ; **aucun magic number**) + `select_tier(level, current, hysteresis)` **pur**
+  avec hystérésis **collante vers le haut** (descente au seuil nominal, remontée à seuil+hyst →
+  anti-flapping). Opt-in (`MBG_BATTERY_TIERS`, défaut off) + nécessite le monitoring (source
+  batterie) ; sinon `__main__` loggue un WARNING et désactive. Tout vit dans le **superviseur** :
+  `_plan_tier()` (lit `store.latest()` batterie), `_effective_config()` (cadence du palier ;
+  `force_telemetry=True` **au changement de mode** → l'early-sample diffuse la batterie sur le
+  mesh), et le **duty-cycle < 25 %** (fenêtre ON bornée à `duty_on` dans `_supervise`, puis
+  `_wait(duty_off)`). ⚠️ **`_wait` est watchdog-friendly** : le OFF (>> `WatchdogSec`) doit
+  continuer à pinger `WATCHDOG=1` sinon systemd tue le service (le backoff court, lui, reste un
+  `sleep` simple : garder `max_reconnect_delay` < `WatchdogSec`). Le **seam `spawn` prend la config**
+  effective par palier : `Callable[[Config], WorkerHandle]`. Duty-cycle = perte de flux **assumée**.
 - `__main__.py` — CLI. **L'ENV est la base de la config, la CLI override** (via
   `dataclasses.replace` : on n'override QUE les champs CLI → tout futur champ se propage seul,
   fin du bug « champ oublié »). Câble le superviseur avec `spawn_worker` + `get_context("fork")`
@@ -109,7 +121,7 @@ Les arguments CLI ne servent qu'en usage manuel/PoC et priment s'ils sont fourni
 - **V0.1** (fait) : passerelle (forward opaque + résilience par isolation de process).
 - **V0.2** (fait) : API de contrôle / downlink (texte, télémétrie, admin node).
 - **V0.3** (fait) : monitoring — sonde SQLite (métriques node + qualité BLE), API + export CSV.
-- **V0.4** : paliers batterie + duty-cycle du lien BLE (seuils dans le README).
+- **V0.4** (fait) : paliers batterie + duty-cycle du lien BLE (adaptatif ; opt-in ; seuils dans le README).
 
 ## Conventions
 

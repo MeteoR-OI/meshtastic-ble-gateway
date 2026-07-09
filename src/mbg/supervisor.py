@@ -14,14 +14,16 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from dataclasses import replace
 from typing import Any, Callable, Dict, Optional
 
 from .config import Config
 from .systemd_notify import sd_notify
+from .tiers import Tier, select_tier
 
 log = logging.getLogger("mbg.supervisor")
 
-Spawn = Callable[[], object]  # () -> WorkerHandle (beats/is_alive/kill/join/submit)
+Spawn = Callable[[Config], object]  # (config) -> WorkerHandle (beats/is_alive/kill/join/submit)
 Notify = Callable[[str], bool]
 Serve = Callable[[Callable, Callable], None]  # (submit, should_run) -> bloque jusqu'à should_run False
 
@@ -59,6 +61,8 @@ class Supervisor:
         self._store = store
         self._lock = threading.Lock()
         self._current = None  # worker courant, exposé à l'API
+        self._tier: Optional[Tier] = None  # palier courant (état pour l'hystérésis)
+        self._announced_tier: Optional[Tier] = None  # dernier palier annoncé (télémétrie diffusée)
 
     # --- API de contrôle (appelé depuis le thread serveur) ---
     def submit(self, command: Dict[str, Any], timeout: float) -> Dict[str, Any]:
@@ -76,6 +80,30 @@ class Supervisor:
     def _set_current(self, worker) -> None:
         with self._lock:
             self._current = worker
+
+    # --- Paliers batterie (V0.4) ---
+    def _plan_tier(self) -> Tier:
+        """Palier courant. Statique (comportement V0.3) si `battery_tiers` off."""
+        if not self._config.battery_tiers:
+            return Tier("STATIC", self._config.monitor_interval, False)
+        node = (self._store.latest().get("node") if self._store is not None else None) or {}
+        self._tier = select_tier(node.get("battery_level"), self._tier, self._config.tier_hysteresis)
+        return self._tier
+
+    def _effective_config(self, tier: Tier, announce: bool) -> Config:
+        """Config du prochain worker : cadence du palier ; télémétrie forcée si changement de mode."""
+        # CRITICAL (monitor_interval None) -> un seul relevé par fenêtre de connexion (duty_on).
+        interval = tier.monitor_interval if tier.monitor_interval is not None else self._config.duty_on
+        return replace(
+            self._config, monitor_interval=interval, force_telemetry=self._config.force_telemetry or announce
+        )
+
+    def _wait(self, duration: float, should_continue: Callable[[], bool]) -> None:
+        """Attente qui continue de nourrir le watchdog (le OFF du duty-cycle dépasse WatchdogSec)."""
+        end = self._clock() + duration
+        while should_continue() and self._clock() < end:
+            self._notify("WATCHDOG=1")
+            self._sleep(self._config.supervisor_tick)
 
     def _maintenance(self, should_run: Callable[[], bool]) -> None:
         """Thread : purge + export CSV périodiques de la base de métriques."""
@@ -101,31 +129,50 @@ class Supervisor:
             delay = self._config.reconnect_delay
             reconnects = 0
             while should_continue():
-                worker = self._spawn()
+                tier = self._plan_tier()
+                announce = self._config.battery_tiers and tier != self._announced_tier
+                worker = self._spawn(self._effective_config(tier, announce))
                 self._set_current(worker)
-                productive = self._supervise(worker, should_continue)
+                on_window = self._config.duty_on if tier.duty_cycle else None
+                productive = self._supervise(worker, should_continue, on_window)
                 self._stop_worker(worker)
                 self._set_current(None)
+                if productive and announce:  # télémétrie diffusée pendant la session -> palier annoncé
+                    self._announced_tier = tier
                 if not should_continue():
                     break  # arrêt demandé
                 reconnects += 1
                 if self._store is not None:
                     self._store.record_link(reconnects)  # timeline des reconnexions (qualité BLE)
-                if productive:  # le worker s'était connecté -> on repart au délai de base
-                    delay = self._config.reconnect_delay
-                log.info("respawn du worker dans %ss", delay)
-                self._sleep(delay)
-                delay = min(delay * 2, self._config.max_reconnect_delay)
+                if tier.duty_cycle:  # palier critique : on coupe le lien pour laisser le node dormir
+                    # OFF long (>> WatchdogSec) -> attente qui continue de nourrir le watchdog.
+                    log.info("palier %s : lien coupé %ss (duty-cycle)", tier.name, self._config.duty_off)
+                    self._wait(self._config.duty_off, should_continue)
+                else:
+                    if productive:  # le worker s'était connecté -> on repart au délai de base
+                        delay = self._config.reconnect_delay
+                    # Backoff court (<= max_reconnect_delay, défaut 30s < WatchdogSec) : sleep simple.
+                    log.info("respawn du worker dans %ss", delay)
+                    self._sleep(delay)
+                    delay = min(delay * 2, self._config.max_reconnect_delay)
         finally:
             stop.set()
 
-    def _supervise(self, worker, should_continue: Callable[[], bool]) -> bool:
-        """Surveille jusqu'à fin/gel. Renvoie True si le worker s'était connecté (beats>0)."""
+    def _supervise(self, worker, should_continue: Callable[[], bool], on_window: Optional[float] = None) -> bool:
+        """Surveille jusqu'à fin/gel. Renvoie True si le worker s'était connecté (beats>0).
+
+        `on_window` (duty-cycle) : une fois connecté, on coupe volontairement la session au
+        bout de `on_window` s (le node peut alors dormir pendant le OFF).
+        """
         last_beats = worker.beats()
         last_progress = self._clock()
+        start = self._clock()
         while should_continue():
             self._notify("WATCHDOG=1")  # le parent est vivant tant qu'il surveille
             self._sleep(self._config.supervisor_tick)
+            if on_window is not None and worker.beats() > 0 and self._clock() - start > on_window:
+                log.info("fenêtre ON écoulée (%ss) — fin de session duty-cycle", on_window)
+                return True  # connecté = productif ; coupure volontaire du duty-cycle
             if not worker.is_alive():
                 return worker.beats() > 0  # sorti seul (os._exit sur drop)
             beats = worker.beats()
