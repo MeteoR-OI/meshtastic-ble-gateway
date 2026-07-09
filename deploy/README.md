@@ -16,6 +16,11 @@ Le déchiffrement se fait côté MeshForge (voir plus bas).
 
 ## Raspbian 10 (Buster) : Python 3.9+ isolé
 
+> 💡 **Raccourci sans compilation** : plutôt que compiler sur le Pi (~40 min), on peut
+> installer des **artefacts pré-compilés** (Python 3.11 en `.deb` + wheelhouse armhf) —
+> voir **[`deploy/buster-offline/`](buster-offline/)**. La procédure ci-dessous reste la
+> méthode « depuis les sources » (utile pour (re)produire ces artefacts).
+
 > ⚠️ **Zéro impact sur le Python système.** Règles d'or : **jamais** `apt install python3.x`,
 > **jamais** `make install` (uniquement `make altinstall`), **jamais** `update-alternatives`
 > sur `python3`, ne pas toucher à `/usr/bin/python3`. On installe un interpréteur **à côté**
