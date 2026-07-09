@@ -25,6 +25,9 @@ coverage.xml
 .mypy_cache/
 .ruff_cache/
 
+# Runbooks opérationnels MHA (RPi) — locaux, non versionnés (traçabilité côté ops)
+deploy/runbook-*.md
+
 # OS / éditeurs
 .DS_Store
 .idea/

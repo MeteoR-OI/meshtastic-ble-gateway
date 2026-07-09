@@ -34,11 +34,12 @@ def test_worker_body_runs_session_and_heartbeats():
     counter = FakeCounter()
     captured = {}
 
-    def fake_session(config, publisher_factory, nodelink_factory, heartbeat, should_continue, commands=None, monitor=None):
+    def fake_session(config, publisher_factory, nodelink_factory, heartbeat, should_continue, commands=None, monitor=None, tune=None):
         captured["pub"] = publisher_factory()  # exerce publisher_factory
         captured["link"] = nodelink_factory("a", lambda m: None, lambda: None)  # et nodelink_factory
         captured["commands"] = commands
         captured["monitor"] = monitor
+        captured["tune"] = tune
         heartbeat()
         heartbeat()
         return 3
@@ -54,6 +55,25 @@ def test_worker_body_runs_session_and_heartbeats():
     assert captured["link"].args[0] == "a"
     assert captured["commands"] is sentinel  # canal de commandes transmis à la session
     assert captured["monitor"] is None  # monitoring désactivé (interval=0)
+    assert captured["tune"] is None  # stabilisation BLE désactivée (timeout=0)
+
+
+def test_worker_body_tunes_when_enabled():
+    tuned = []
+    captured = {}
+
+    def fake_session(config, pf, nf, hb, sc, commands=None, monitor=None, tune=None):
+        captured["tune"] = tune
+        tune()  # la session déclenche le réglage une fois le lien établi
+
+    _worker_body(
+        Config(monitor_interval=0, ble_supervision_timeout_ms=6000), FakeCounter(),
+        session=fake_session, publisher_cls=FakePub, nodelink_cls=FakeLink,
+        tuner=lambda cfg: tuned.append(cfg) or True,
+    )
+    assert captured["tune"] is not None
+    assert len(tuned) == 1  # tuner appelé avec la config
+    assert tuned[0].ble_supervision_timeout_ms == 6000
 
 
 class FakeStore:
@@ -81,7 +101,7 @@ class MonLink:
 
 
 def _session_calling_monitor(link):
-    def session(config, pf, nf, hb, sc, commands=None, monitor=None):
+    def session(config, pf, nf, hb, sc, commands=None, monitor=None, tune=None):
         monitor(link)
 
     return session
@@ -114,7 +134,7 @@ def test_worker_body_monitoring_force_telemetry():
 def test_worker_body_monitoring_off_no_store():
     calls = {"store": 0}
 
-    def session(config, pf, nf, hb, sc, commands=None, monitor=None):
+    def session(config, pf, nf, hb, sc, commands=None, monitor=None, tune=None):
         assert monitor is None
 
     _worker_body(

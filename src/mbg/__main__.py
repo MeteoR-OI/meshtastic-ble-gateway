@@ -71,6 +71,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         log.warning("MBG_BATTERY_TIERS ignoré : nécessite le monitoring (MBG_MONITOR_INTERVAL>0)")
         config = replace(config, battery_tiers=False)
 
+    # Stabilisation du lien BLE (V0.5) : imposée par le worker via hcitool ; nécessite
+    # CAP_NET_ADMIN+CAP_NET_RAW sur le service (sinon l'application échoue et est loguée).
+    if config.ble_supervision_timeout_ms > 0:
+        log.info(
+            "stabilisation lien BLE activée : supervision_timeout=%d ms (nécessite CAP_NET_ADMIN)",
+            config.ble_supervision_timeout_ms,
+        )
+
     # Le BLE tourne dans un sous-processus jetable ; le superviseur (ce process) ne
     # touche jamais au BLE, donc ne fige jamais. L'API de contrôle (si token) tourne
     # dans un thread du superviseur.

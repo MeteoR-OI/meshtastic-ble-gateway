@@ -27,6 +27,7 @@ ENV_KEYS = [
     "MBG_DUTY_ON",
     "MBG_DUTY_OFF",
     "MBG_TIER_HYSTERESIS",
+    "MBG_BLE_SUPERVISION_TIMEOUT_MS",
 ]
 
 
@@ -57,6 +58,7 @@ def test_defaults_from_empty_env():
     assert c.duty_on == 300.0
     assert c.duty_off == 1800.0
     assert c.tier_hysteresis == 3.0
+    assert c.ble_supervision_timeout_ms == 0
 
 
 def test_full_env_override():
@@ -87,6 +89,7 @@ def test_full_env_override():
             "MBG_DUTY_ON": "120",
             "MBG_DUTY_OFF": "900",
             "MBG_TIER_HYSTERESIS": "5",
+            "MBG_BLE_SUPERVISION_TIMEOUT_MS": "6000",
         }
     )
     assert c.ble_address == "AA:BB:CC"
@@ -114,6 +117,7 @@ def test_full_env_override():
     assert c.duty_on == 120.0
     assert c.duty_off == 900.0
     assert c.tier_hysteresis == 5.0
+    assert c.ble_supervision_timeout_ms == 6000
 
 
 def test_empty_credentials_become_none():

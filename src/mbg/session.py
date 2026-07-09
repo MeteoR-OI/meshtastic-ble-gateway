@@ -34,12 +34,16 @@ def run_one_session(
     sleep: Callable[[float], None] = time.sleep,
     commands=None,
     monitor: Optional[Callable[[object], None]] = None,
+    tune: Optional[Callable[[], None]] = None,
 ) -> int:
     """Établit broker + BLE, relaie jusqu'au décrochage. Renvoie le nb de paquets relayés.
 
     `commands` (optionnel) : canal downlink avec `drain()`/`reply(id, result)`. À chaque
     poll, les commandes en attente sont exécutées via `link.send()` (write BLE). Un write
     qui gèle bloque le poll → plus de heartbeat → le superviseur SIGKILL le worker.
+
+    `tune` (optionnel, V0.5) : appelé UNE fois dès le lien établi pour stabiliser le BLE
+    (supervision timeout via `hcitool lecup`). Ne lève jamais (voir link_tuner).
     """
     publisher = publisher_factory()
     publisher.connect()
@@ -47,6 +51,8 @@ def run_one_session(
     lost = threading.Event()  # armé si meshtastic émet connection.lost
     link = nodelink_factory(config.ble_address, proxy.on_proxy_message, lost.set)
     link.open()
+    if tune is not None:
+        tune()  # une fois par session : impose le supervision timeout sur le lien vivant
     # Cadence de monitoring exprimée en nombre de polls (0 = monitoring désactivé).
     polls_per_monitor = (
         max(1, round(config.monitor_interval / config.poll_interval))

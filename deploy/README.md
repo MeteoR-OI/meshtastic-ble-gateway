@@ -154,6 +154,30 @@ journalctl -u mbg -f
 | `MBG_DUTY_ON` | `300` | palier < 25 % : durée de la fenêtre de connexion (s) |
 | `MBG_DUTY_OFF` | `1800` | palier < 25 % : durée de déconnexion entre fenêtres (s) |
 | `MBG_TIER_HYSTERESIS` | `3` | marge (%) anti-flapping entre paliers |
+| `MBG_BLE_SUPERVISION_TIMEOUT_MS` | `0` | `>0` = supervision timeout (ms) imposé au lien BLE via `hcitool lecup` à chaque session (`0` = off). **Nécessite `CAP_NET_ADMIN`+`CAP_NET_RAW` + `hcitool`** |
+
+## Stabilisation du lien BLE (V0.5) — optionnelle
+
+Activée si `MBG_BLE_SUPERVISION_TIMEOUT_MS > 0` (ex. `6000`). Contre le churn sur signal faible
+(-80/-90 dBm) : impose le **supervision timeout** BLE au lien vivant via `hcitool lecup` (le défaut
+BlueZ de 420 ms coupe dès ~0,4 s de fading ; BlueZ ignore la debugfs en central — bug #717). Une
+fois par session, appliqué dès le lien établi. **Effet terrain : ~94 % de churn en moins** (mesurable
+dans le compteur `link_quality`).
+
+**Prérequis** (sinon l'application échoue, est loguée, et la session continue sans le réglage) :
+- `hcitool` installé (`apt install bluez`) ;
+- capabilities sur le service — **décommenter les 3 lignes ensemble** dans `mbg.service` :
+  ```ini
+  Environment=MBG_BLE_SUPERVISION_TIMEOUT_MS=6000
+  AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+  CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+  ```
+  puis `systemctl daemon-reload && systemctl restart mbg`.
+
+> ⚠️ `CAP_NET_ADMIN` est large (admin réseau) : c'est le coût de garder le réglage dans le worker
+> (testable à 100 %, une fois par session) plutôt qu'un service root séparé. Sur un RPi dédié
+> passerelle, acceptable. Si le lien reste sous ~-95 dBm, le vrai levier devient RF : dongle USB
+> BLE à antenne externe côté RPi, ou firmware node `NRF52_BLE_TX_POWER 8`.
 
 ## API de contrôle (downlink) — optionnelle
 

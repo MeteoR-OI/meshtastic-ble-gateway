@@ -43,6 +43,14 @@ Environment=MBG_BROKER_PORT=1883
 # Environment=MBG_DUTY_ON=300
 # Environment=MBG_DUTY_OFF=1800
 # Environment=MBG_TIER_HYSTERESIS=3
+# Stabilisation du lien BLE sur signal faible (V0.5) — opt-in. Impose le supervision
+# timeout (ms) au lien via `hcitool lecup` à chaque session (contourne le bug BlueZ #717
+# qui rend la debugfs inopérante en central). Réduit fortement le churn à -80/-90 dBm.
+# REQUIERT les 2 capabilities ci-dessous (émission d'une commande HCI) ET `hcitool` installé
+# (paquet bluez). Décommenter les 3 lignes ensemble :
+# Environment=MBG_BLE_SUPERVISION_TIMEOUT_MS=6000
+# AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+# CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
 ExecStart=/opt/meshtastic-ble-gateway/.venv/bin/python -m mbg
 # BLE 24/7 peu fiable : on relance toujours (le code reconnecte déjà en interne).
 Restart=always
