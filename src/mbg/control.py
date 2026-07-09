@@ -104,6 +104,41 @@ def _send_position(iface, command: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": True, "detail": f"position émise ({lat},{lon})", "id": getattr(packet, "id", None)}
 
 
+def _send_telemetry(iface, command: Dict[str, Any]) -> Dict[str, Any]:
+    """Télémétrie : diffusion du node local, OU **requête** vers un node distant si `dest`.
+
+    Avec `dest`, on interroge ce node (`wantResponse`) : il répondra via le mesh (sa
+    télémétrie remontera en `[uplink]` MQTT). Sans `dest`, diffusion locale (comportement V0.2).
+    """
+    dest = command.get("dest")
+    if not dest:
+        iface.sendTelemetry()
+        return {"ok": True, "detail": "télémétrie envoyée"}
+    channel_index = _resolve_channel(iface, command.get("channel", 0))
+    iface.sendTelemetry(destinationId=dest, wantResponse=True, channelIndex=channel_index)
+    return {"ok": True, "detail": f"télémétrie demandée à {dest} (wantResponse)"}
+
+
+def _request_position(iface, command: Dict[str, Any]) -> Dict[str, Any]:
+    """Demande à un node **distant** de renvoyer sa position (`wantResponse` vers `dest`).
+
+    On transmet notre position fixe (lue sur le node) plutôt que 0,0 — par cohérence avec
+    l'anti-piège de `/send/position` ; de toute façon le paquet est **dirigé** vers `dest`,
+    donc notre node n'adopte pas cette position. La réponse du node distant remonte en `[uplink]`.
+    """
+    dest = command.get("dest")
+    if not dest:
+        return {"ok": False, "error": "dest manquant (node distant à interroger)"}
+    channel_index = _resolve_channel(iface, command.get("channel", 0))
+    pos = (iface.getMyNodeInfo() or {}).get("position") or {}
+    lat = pos.get("latitude") or 0.0
+    lon = pos.get("longitude") or 0.0
+    packet = iface.sendPosition(
+        float(lat), float(lon), destinationId=dest, wantResponse=True, channelIndex=channel_index
+    )
+    return {"ok": True, "detail": f"position demandée à {dest} (wantResponse)", "id": getattr(packet, "id", None)}
+
+
 def _apply_admin(iface, setting: Any, value: Any) -> Dict[str, Any]:
     spec = ADMIN_SETTINGS.get(setting)
     if spec is None:
@@ -124,10 +159,11 @@ def execute_command(iface, command: Dict[str, Any]) -> Dict[str, Any]:
         if ctype == "text":
             return _send_text(iface, command)
         if ctype == "telemetry":
-            iface.sendTelemetry()
-            return {"ok": True, "detail": "télémétrie envoyée"}
+            return _send_telemetry(iface, command)
         if ctype == "position":
             return _send_position(iface, command)
+        if ctype == "request_position":
+            return _request_position(iface, command)
         if ctype == "admin":
             return _apply_admin(iface, command.get("setting"), command.get("value"))
         return {"ok": False, "error": f"type de commande inconnu: {ctype}"}

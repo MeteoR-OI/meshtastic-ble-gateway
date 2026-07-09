@@ -42,8 +42,31 @@ def test_send_text_builds_command():
 
 
 def test_send_telemetry_empty_body():
-    status, _ = handle_request("POST", "/send/telemetry", _hdr("s"), "", "s", lambda c: {"ok": True})
+    seen = {}
+    status, _ = handle_request(
+        "POST", "/send/telemetry", _hdr("s"), "", "s", lambda c: (seen.update(c) or {"ok": True})
+    )
     assert status == 200
+    assert seen == {"type": "telemetry", "dest": None, "channel": 0}  # diffusion locale
+
+
+def test_send_telemetry_directed_request():
+    seen = {}
+    handle_request(
+        "POST", "/send/telemetry", _hdr("s"), '{"dest":"!42cd37a3","channel":"meteo"}', "s",
+        lambda c: (seen.update(c) or {"ok": True}),
+    )
+    assert seen == {"type": "telemetry", "dest": "!42cd37a3", "channel": "meteo"}
+
+
+def test_request_position_route():
+    seen = {}
+    status, _ = handle_request(
+        "POST", "/request/position", _hdr("s"), '{"dest":"!42cd37a3"}', "s",
+        lambda c: (seen.update(c) or {"ok": True}),
+    )
+    assert status == 200
+    assert seen == {"type": "request_position", "dest": "!42cd37a3", "channel": 0}
 
 
 def test_send_position_empty_body():
