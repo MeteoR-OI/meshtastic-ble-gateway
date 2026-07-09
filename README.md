@@ -100,7 +100,10 @@ py-spy en prod). La passerelle est donc bâtie en **isolation de process** :
   surveille le **heartbeat** du worker : worker sorti → respawn ; worker **figé** (heartbeat
   stagnant au-delà d'`alive_timeout`, ou de `connect_grace` pendant la connexion) →
   **SIGKILL** → respawn. Backoff exponentiel plafonné (`MBG_RECONNECT_DELAY` →
-  `MBG_MAX_RECONNECT_DELAY`), remis à zéro après un worker qui s'est connecté.
+  `MBG_MAX_RECONNECT_DELAY`), remis à zéro après un worker qui s'est connecté. Après un
+  SIGKILL, le superviseur **force un `disconnect` bluez** du node (le worker gelé n'a pas fermé
+  l'ACL ; sans ça `bluetoothd` garde le lien, le node cesse d'émettre et le respawn ne le
+  retrouve pas — boucle infinie observée en prod). Appel borné (`timeout`) → le superviseur ne fige jamais.
 - **Watchdog systemd** (`Type=notify` / `WatchdogSec`) : le superviseur pinge en continu ;
   systemd ne relance le service **que si le superviseur lui-même meurt** — vrai dernier filet.
 

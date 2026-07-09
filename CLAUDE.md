@@ -49,6 +49,11 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
 - `supervisor.py` — `Supervisor` : spawn worker → surveille heartbeat (phases connect/alive)
   → respawn si sorti / **SIGKILL** si figé → backoff plafonné + reset si connecté. Nourrit
   le watchdog systemd (`sd_notify`). Testé avec un faux spawn (aucun vrai process).
+  **`_kill` = SIGKILL + join PUIS `disconnect` bluez forcé du node (v0.6.1)** : un worker gelé
+  ne ferme pas l'ACL → `bluetoothd` garde `Connected: yes` → le node cesse d'émettre → le
+  respawn ne le retrouve pas (boucle ∞, churn terrain CHAR645). Le teardown doit venir du
+  superviseur ; défaut = `bluetoothctl disconnect <MAC>` **borné par `timeout` subprocess** (ne
+  gèle jamais le superviseur ; plus sûr qu'un D-Bus in-process). Seam `disconnect` injectable.
 - `systemd_notify.py` — `sd_notify` (watchdog, sans dépendance).
 - `control.py` — `execute_command(iface, command)` : traduit une commande (text/telemetry/
   position/request_position/admin) en appel meshtastic. Ne lève jamais. Whitelist admin

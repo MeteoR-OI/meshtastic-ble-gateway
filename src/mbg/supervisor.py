@@ -12,6 +12,7 @@ HTTP (thread) si un `serve` est fourni.
 from __future__ import annotations
 
 import logging
+import subprocess
 import threading
 import time
 from dataclasses import replace
@@ -26,6 +27,24 @@ log = logging.getLogger("mbg.supervisor")
 Spawn = Callable[[Config], object]  # (config) -> WorkerHandle (beats/is_alive/kill/join/submit)
 Notify = Callable[[str], bool]
 Serve = Callable[[Callable, Callable], None]  # (submit, should_run) -> bloque jusqu'à should_run False
+Disconnect = Callable[[str], None]  # (mac) -> force bluez à lâcher l'ACL du node
+
+
+def _default_disconnect(mac: str) -> None:  # pragma: no cover — frontière subprocess/OS
+    """Force `bluetoothd` à lâcher l'ACL du node, borné en temps (best-effort, ne lève jamais).
+
+    Nécessaire APRÈS un SIGKILL : le worker gelé n'a pas fermé la connexion, donc bluez garde
+    `Connected: yes` → le node cesse d'émettre → le worker respawné ne le retrouve pas au scan.
+    Le `timeout` subprocess préserve l'invariant « le superviseur ne gèle jamais » (plus sûr
+    qu'un appel D-Bus in-process). Sur Buster : `bluetoothctl` de BlueZ 5.55 doit être dans le PATH.
+    """
+    try:
+        subprocess.run(
+            ["bluetoothctl", "disconnect", mac], timeout=10,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+        )
+    except Exception:  # noqa: BLE001 — best-effort ; jamais bloquant ni levant
+        pass
 
 
 def _describe(command: Dict[str, Any]) -> str:
@@ -54,6 +73,7 @@ class Supervisor:
         notify: Notify = sd_notify,
         serve: Optional[Serve] = None,
         store=None,
+        disconnect: Disconnect = _default_disconnect,
     ) -> None:
         self._config = config
         self._spawn = spawn
@@ -62,6 +82,7 @@ class Supervisor:
         self._notify = notify
         self._serve = serve
         self._store = store
+        self._disconnect = disconnect
         self._lock = threading.Lock()
         self._current = None  # worker courant, exposé à l'API
         self._tier: Optional[Tier] = None  # palier courant (état pour l'hystérésis)
@@ -190,12 +211,18 @@ class Supervisor:
                 grace = self._config.alive_timeout if beats > 0 else self._config.connect_grace
                 if self._clock() - last_progress > grace:
                     log.warning("worker figé (%s) — SIGKILL", "connecté" if beats > 0 else "connexion")
-                    worker.kill()
-                    worker.join()
+                    self._kill(worker)
                     return beats > 0
         return worker.beats() > 0  # arrêt demandé
 
+    def _kill(self, worker) -> None:
+        """SIGKILL + join, PUIS force bluez à lâcher l'ACL (le worker gelé ne se nettoie pas)."""
+        worker.kill()
+        worker.join()
+        # Sans ça, bluez garde `Connected: yes` → le node n'émet plus → respawn ne le retrouve pas.
+        log.info("disconnect BLE forcé (post-kill) : %s", self._config.ble_address)
+        self._disconnect(self._config.ble_address)
+
     def _stop_worker(self, worker) -> None:
         if worker.is_alive():
-            worker.kill()
-            worker.join()
+            self._kill(worker)
