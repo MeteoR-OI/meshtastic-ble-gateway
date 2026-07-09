@@ -20,10 +20,13 @@ WorkingDirectory=/opt/meshtastic-ble-gateway
 # Raspbian Buster uniquement : bleak lit `bluetoothctl --version` du PATH ; avec le paquet
 # bluez-meshforge (BlueZ 5.55 sous /opt) il faut le mettre en tête du PATH. Inutile sur Bullseye+.
 # Environment=PATH=/opt/bluez-5.55/bin:/usr/local/bin:/usr/bin:/bin
-# Config par variables d'env (cf. src/mbg/config.py). MAC côté BlueZ.
-Environment=MBG_BLE_ADDRESS=E6:E3:53:4B:BE:A5
-Environment=MBG_BROKER_HOST=mqtt-mt.meteor-oi.re
+# Config par variables d'env (cf. src/mbg/config.py). MAC du node côté BlueZ (à adapter).
+Environment=MBG_BLE_ADDRESS=AA:BB:CC:DD:EE:FF
+Environment=MBG_BROKER_HOST=mqtt.example.org
 Environment=MBG_BROKER_PORT=1883
+# Auth broker (SECRET : ne pas commiter) :
+# Environment=MBG_BROKER_USERNAME=change-me
+# Environment=MBG_BROKER_PASSWORD=change-me
 # Backoff de reconnexion : initial / plafond (optionnel, défauts 5 / 30 s).
 # Environment=MBG_RECONNECT_DELAY=5
 # Environment=MBG_MAX_RECONNECT_DELAY=30

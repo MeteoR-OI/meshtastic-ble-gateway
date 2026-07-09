@@ -16,12 +16,12 @@ repli « nodeless republish JSON » (voir le README racine).
 pip install meshtastic paho-mqtt
 ```
 
-Le node de test : **T114, BLE MAC `E6:E3:53:4B:BE:A5`**.
+Le node de test : **T114, BLE MAC `<MAC-du-node>`**.
 
 ## 1. Vérifier la config du node (READ-ONLY — ne rien changer)
 
 ```bash
-meshtastic --ble E6:E3:53:4B:BE:A5 --info
+meshtastic --ble <MAC-du-node> --info
 ```
 
 Confirmer dans la sortie que le node est **déjà** prêt (normalement oui) :
@@ -50,7 +50,7 @@ mosquitto_sub -h localhost -t 'msh/#' -v
 Depuis le Mac (BLE via CoreBluetooth) ou depuis le RPi (`hci0`) :
 
 ```bash
-python poc/ble_mqtt_proxy.py --ble E6:E3:53:4B:BE:A5 --broker localhost
+python poc/ble_mqtt_proxy.py --ble <MAC-du-node> --broker localhost
 ```
 
 Le PoC monopolise le lien BLE (Meshtastic = 1 client à la fois) : s'assurer
@@ -74,7 +74,7 @@ BLE non fonctionnel → bascule sur le repli **nodeless** (README racine).
 
 | Flag | Rôle |
 |------|------|
-| `--ble` | MAC/nom BLE du node (défaut `E6:E3:53:4B:BE:A5`) |
+| `--ble` | MAC/nom BLE du node (défaut `<MAC-du-node>`) |
 | `--broker` / `--port` | broker MQTT cible (défaut `localhost:1883`) |
 | `--username` / `--password` | auth broker (optionnel) |
 | `--downlink` | active broker→node (⚠️ boucle d'écho si abonné à ses propres uplinks) |
