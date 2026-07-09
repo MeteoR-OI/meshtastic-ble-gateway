@@ -66,6 +66,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         broker_password=args.password,
     )
 
+    # Paliers batterie (V0.4) : nécessitent le monitoring comme source de batterie.
+    if config.battery_tiers and config.monitor_interval <= 0:
+        log.warning("MBG_BATTERY_TIERS ignoré : nécessite le monitoring (MBG_MONITOR_INTERVAL>0)")
+        config = replace(config, battery_tiers=False)
+
     # Le BLE tourne dans un sous-processus jetable ; le superviseur (ce process) ne
     # touche jamais au BLE, donc ne fige jamais. L'API de contrôle (si token) tourne
     # dans un thread du superviseur.
@@ -74,7 +79,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # (écriture node_metrics/neighbors) — même fichier SQLite, mode WAL.
     store = MetricsStore(config.db_path) if config.monitor_interval > 0 else None
     supervisor = Supervisor(
-        config, lambda: spawn_worker(config, ctx), serve=_build_serve(config, store), store=store
+        config, lambda cfg: spawn_worker(cfg, ctx), serve=_build_serve(config, store), store=store
     )
 
     stop = {"flag": False}

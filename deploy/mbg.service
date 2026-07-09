@@ -37,6 +37,12 @@ Environment=MBG_BROKER_PORT=1883
 # Environment=MBG_DUMP_DIR=/var/lib/mbg/csv
 # Environment=MBG_DUMP_INTERVAL=3600
 # Environment=MBG_RETENTION_DAYS=0
+# Paliers batterie + duty-cycle (V0.4) — nécessite le monitoring. Le duty-cycle < 25 %
+# COUPE le lien (trous de flux assumés) pour laisser le node dormir.
+# Environment=MBG_BATTERY_TIERS=true
+# Environment=MBG_DUTY_ON=300
+# Environment=MBG_DUTY_OFF=1800
+# Environment=MBG_TIER_HYSTERESIS=3
 ExecStart=/opt/meshtastic-ble-gateway/.venv/bin/python -m mbg
 # BLE 24/7 peu fiable : on relance toujours (le code reconnecte déjà en interne).
 Restart=always

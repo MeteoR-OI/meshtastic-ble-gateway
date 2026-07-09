@@ -114,11 +114,17 @@ def serve(host, port, token, timeout, submit, metrics, should_run) -> None:  # p
             body = self.rfile.read(length).decode() if length else ""
             status, payload = handle_request(method, self.path, self.headers, body, token, dispatch, metrics)
             data = json.dumps(payload).encode()
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
+            try:
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+            except (BrokenPipeError, ConnectionError):
+                # Le client a fermé la socket avant qu'on réponde (typique d'un /send/* qui
+                # dépasse le timeout du client et part sur le chemin timeout worker). La
+                # commande a bien été traitée ; il n'y a plus rien à écrire -> on ignore.
+                log.info("client déconnecté avant la réponse (%s %s)", method, self.path)
 
         def do_GET(self):
             self._handle("GET")

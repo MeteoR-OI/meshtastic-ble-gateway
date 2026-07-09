@@ -4,6 +4,7 @@ import threading
 from fakes import FakeWorkerHandle
 from mbg.config import Config
 from mbg.supervisor import Supervisor
+from mbg.tiers import CRITICAL, HIGH, TIER_HIGH_INTERVAL
 
 
 def seq(values):
@@ -23,7 +24,7 @@ def test_no_spawn_when_stopped_immediately():
     spawned = []
     notes = []
 
-    def spawn():
+    def spawn(cfg=None):
         spawned.append(1)
         return FakeWorkerHandle()
 
@@ -41,7 +42,7 @@ def test_productive_exit_then_respawn_at_base_delay():
     clock = Clock()
     step = {"n": 0}
 
-    def spawn():
+    def spawn(cfg=None):
         w = FakeWorkerHandle()
         workers.append(w)
         return w
@@ -71,7 +72,7 @@ def test_connect_failure_grows_backoff():
     slept = []
     step = {"n": 0}
 
-    def spawn():
+    def spawn(cfg=None):
         w = FakeWorkerHandle()
         workers.append(w)
         return w
@@ -95,7 +96,7 @@ def test_frozen_after_connect_is_killed():
     clock = Clock()
     step = {"n": 0}
 
-    def spawn():
+    def spawn(cfg=None):
         w = FakeWorkerHandle()
         workers.append(w)
         return w
@@ -119,7 +120,7 @@ def test_frozen_during_connect_is_killed():
     workers = []
     clock = Clock()
 
-    def spawn():
+    def spawn(cfg=None):
         w = FakeWorkerHandle()  # ne bat jamais (beats=0), reste "alive" (bloqué en connexion)
         workers.append(w)
         return w
@@ -140,7 +141,7 @@ def test_stop_kills_running_worker():
     clock = Clock()
     step = {"n": 0}
 
-    def spawn():
+    def spawn(cfg=None):
         w = FakeWorkerHandle()
         workers.append(w)
         return w
@@ -160,7 +161,7 @@ def test_stop_kills_running_worker():
 
 def _quiet_sup(**kw):
     return Supervisor(
-        Config(), lambda: FakeWorkerHandle(), sleep=lambda s: None,
+        Config(), lambda cfg=None: FakeWorkerHandle(), sleep=lambda s: None,
         clock=lambda: 0.0, notify=lambda _: None, **kw,
     )
 
@@ -219,12 +220,159 @@ class FakeStore:
         self.exported.append(directory)
 
 
+class FakeLatestStore(FakeStore):
+    """Store dont on pilote la dernière batterie (source des paliers V0.4)."""
+
+    def __init__(self, battery=None):
+        super().__init__()
+        self.battery = battery
+
+    def latest(self):
+        node = {"battery_level": self.battery} if self.battery is not None else None
+        return {"node": node, "link": None}
+
+
+def _bare_sup(config, **kw):
+    return Supervisor(
+        config, lambda cfg=None: None, sleep=lambda s: None, clock=lambda: 0.0,
+        notify=lambda _: None, **kw,
+    )
+
+
+# --- Paliers batterie (V0.4) ---
+
+def test_plan_tier_static_when_disabled():
+    tier = _bare_sup(Config(battery_tiers=False, monitor_interval=42))._plan_tier()
+    assert tier.duty_cycle is False and tier.monitor_interval == 42
+
+
+def test_plan_tier_reads_battery():
+    store = FakeLatestStore(battery=10)
+    sup = _bare_sup(Config(battery_tiers=True, monitor_interval=300, tier_hysteresis=3), store=store)
+    assert sup._plan_tier().name == "CRITICAL"
+    store.battery = 90
+    assert sup._plan_tier().name == "HIGH"  # remonte (hystérésis franchie)
+
+
+def test_plan_tier_no_store_defaults_high():
+    # battery_tiers on mais pas de store -> batterie inconnue -> défaut HIGH
+    assert _bare_sup(Config(battery_tiers=True))._plan_tier().name == "HIGH"
+
+
+def test_effective_config_critical_uses_duty_on_and_forces_telemetry():
+    sup = _bare_sup(Config(duty_on=7, force_telemetry=False))
+    eff = sup._effective_config(CRITICAL, announce=True)  # None -> duty_on ; changement -> télémétrie
+    assert eff.monitor_interval == 7 and eff.force_telemetry is True
+
+
+def test_effective_config_high_keeps_interval_and_no_forced_telemetry():
+    eff = _bare_sup(Config(force_telemetry=False))._effective_config(HIGH, announce=False)
+    assert eff.monitor_interval == TIER_HIGH_INTERVAL and eff.force_telemetry is False
+
+
+def test_wait_feeds_watchdog_each_tick():
+    clock = Clock()
+    notes = []
+    sup = Supervisor(
+        Config(supervisor_tick=1), lambda cfg=None: None,
+        sleep=lambda s: setattr(clock, "t", clock.t + s), clock=clock, notify=notes.append,
+    )
+    sup._wait(3, lambda: True)
+    assert notes.count("WATCHDOG=1") == 3  # 3 ticks pour couvrir 3 s (OFF watchdog-friendly)
+
+
+def test_wait_stops_on_should_continue_false():
+    clock = Clock()
+    notes = []
+    sup = Supervisor(
+        Config(supervisor_tick=1), lambda cfg=None: None,
+        sleep=lambda s: setattr(clock, "t", clock.t + s), clock=clock, notify=notes.append,
+    )
+    sup._wait(100, seq([True, False]))  # arrêt demandé avant l'échéance
+    assert notes.count("WATCHDOG=1") == 1
+
+
+def test_on_window_cuts_connected_session():
+    clock = Clock()
+    sup = Supervisor(
+        Config(supervisor_tick=1, alive_timeout=15), lambda cfg=None: None,
+        sleep=lambda s: setattr(clock, "t", clock.t + s), clock=clock, notify=lambda _: None,
+    )
+    worker = FakeWorkerHandle(beat_value=5)  # connecté
+    productive = sup._supervise(worker, seq([True] * 10), on_window=3)
+    assert productive is True  # coupure volontaire = session productive
+    assert worker.killed is False  # pas un SIGKILL (arrêt propre par le superviseur)
+
+
+def test_duty_cycle_run_cuts_off_and_records():
+    spawned = []
+    clock = Clock()
+    notes = []
+    store = FakeLatestStore(battery=10)  # CRITICAL
+
+    def spawn(cfg):
+        spawned.append(cfg)
+        w = FakeWorkerHandle()  # beats=0
+        w.alive = False  # drop immédiat -> non productif, on passe direct au OFF
+        return w
+
+    calls = {"n": 0}
+
+    def cont():  # borne l'exécution à un cycle complet (ON éclair + OFF)
+        calls["n"] += 1
+        return calls["n"] <= 8
+
+    Supervisor(
+        Config(battery_tiers=True, monitor_interval=300, duty_on=3, duty_off=5,
+               supervisor_tick=1, tier_hysteresis=3),
+        spawn, sleep=lambda s: setattr(clock, "t", clock.t + s), clock=clock,
+        notify=notes.append, store=store,
+    ).run(cont)
+
+    assert spawned[0].monitor_interval == 3        # CRITICAL -> cadence = duty_on
+    assert spawned[0].force_telemetry is True       # changement de mode -> télémétrie forcée
+    assert store.links == [1]                        # une reconnexion enregistrée
+    assert notes.count("WATCHDOG=1") >= 3            # le OFF nourrit le watchdog
+
+
+def test_mode_change_forces_telemetry_once():
+    # palier HIGH (lien live) : la télémétrie n'est forcée qu'à la 1re session (changement de
+    # mode) ; une fois le palier annoncé sur une session productive, on ne force plus.
+    spawned = []
+    workers = []
+    store = FakeLatestStore(battery=90)  # HIGH
+
+    def spawn(cfg):
+        spawned.append(cfg)
+        w = FakeWorkerHandle(beat_value=5)  # connecté (productif)
+        workers.append(w)
+        return w
+
+    def sleep_(s):
+        workers[-1].alive = False  # drop après le 1er tick -> session productive terminée
+
+    calls = {"n": 0}
+
+    def cont():
+        calls["n"] += 1
+        return calls["n"] <= 6  # exactement 2 sessions
+
+    Supervisor(
+        Config(battery_tiers=True, monitor_interval=300, tier_hysteresis=3, reconnect_delay=5),
+        spawn, sleep=sleep_, clock=Clock(), notify=lambda _: None, store=store,
+    ).run(cont)
+
+    assert spawned[0].force_telemetry is True   # 1re session = changement de mode -> télémétrie
+    assert spawned[1].force_telemetry is False  # palier déjà annoncé -> plus de forçage
+    assert store.links == [1, 2]
+
+
 def test_record_link_on_respawn():
     store = FakeStore()
     workers = []
     step = {"n": 0}
 
-    def spawn():
+    def spawn(cfg=None):
         w = FakeWorkerHandle()
         workers.append(w)
         return w
@@ -266,7 +414,7 @@ def test_maintenance_without_dump_or_retention():
 def test_run_starts_maintenance_thread():
     store = FakeStore()
     sup = Supervisor(
-        Config(dump_dir="/x", dump_interval=1), lambda: FakeWorkerHandle(),
+        Config(dump_dir="/x", dump_interval=1), lambda cfg=None: FakeWorkerHandle(),
         sleep=lambda s: None, clock=lambda: 0.0, notify=lambda _: None, store=store,
     )
     sup.run(lambda: False)  # démarre le thread de maintenance puis sort aussitôt
@@ -282,7 +430,7 @@ def test_run_starts_api_server_thread():
         done.set()
 
     sup = Supervisor(
-        Config(), lambda: FakeWorkerHandle(), sleep=lambda s: None,
+        Config(), lambda cfg=None: FakeWorkerHandle(), sleep=lambda s: None,
         clock=lambda: 0.0, notify=lambda _: None, serve=serve,
     )
     sup.run(lambda: False)  # pas de spawn ; le thread serveur démarre quand même

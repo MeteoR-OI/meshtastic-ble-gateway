@@ -19,7 +19,7 @@ class FakeSupervisor:
     def run(self, should_continue):
         self.should_continue = should_continue
         self.before_stop = should_continue()
-        self.spawned = self.spawn()  # exerce la fabrique spawn_worker(config, ctx)
+        self.spawned = self.spawn(self.config)  # exerce la fabrique spawn_worker(cfg, ctx)
 
 
 @pytest.fixture
@@ -107,3 +107,19 @@ def test_main_no_store_when_monitoring_off(captured_signals, monkeypatch):
     monkeypatch.setenv("MBG_MONITOR_INTERVAL", "0")
     rc = main([])
     assert rc == 0  # store None (branche monitoring off)
+
+
+def test_battery_tiers_enabled(captured_signals, monkeypatch):
+    monkeypatch.setenv("MBG_BATTERY_TIERS", "true")
+    monkeypatch.setenv("MBG_MONITOR_INTERVAL", "300")
+    rc = main([])
+    assert rc == 0
+    assert FakeSupervisor.last.config.battery_tiers is True  # actif (monitoring présent)
+
+
+def test_battery_tiers_disabled_without_monitoring(captured_signals, monkeypatch):
+    monkeypatch.setenv("MBG_BATTERY_TIERS", "true")
+    monkeypatch.setenv("MBG_MONITOR_INTERVAL", "0")  # pas de source batterie
+    rc = main([])
+    assert rc == 0
+    assert FakeSupervisor.last.config.battery_tiers is False  # garde-fou : désactivé

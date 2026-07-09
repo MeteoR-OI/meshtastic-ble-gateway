@@ -23,6 +23,10 @@ ENV_KEYS = [
     "MBG_DUMP_DIR",
     "MBG_DUMP_INTERVAL",
     "MBG_RETENTION_DAYS",
+    "MBG_BATTERY_TIERS",
+    "MBG_DUTY_ON",
+    "MBG_DUTY_OFF",
+    "MBG_TIER_HYSTERESIS",
 ]
 
 
@@ -49,6 +53,10 @@ def test_defaults_from_empty_env():
     assert c.dump_dir is None
     assert c.dump_interval == 3600.0
     assert c.retention_days == 0.0
+    assert c.battery_tiers is False
+    assert c.duty_on == 300.0
+    assert c.duty_off == 1800.0
+    assert c.tier_hysteresis == 3.0
 
 
 def test_full_env_override():
@@ -75,6 +83,10 @@ def test_full_env_override():
             "MBG_DUMP_DIR": "/data/csv",
             "MBG_DUMP_INTERVAL": "1800",
             "MBG_RETENTION_DAYS": "30",
+            "MBG_BATTERY_TIERS": "true",
+            "MBG_DUTY_ON": "120",
+            "MBG_DUTY_OFF": "900",
+            "MBG_TIER_HYSTERESIS": "5",
         }
     )
     assert c.ble_address == "AA:BB:CC"
@@ -98,6 +110,10 @@ def test_full_env_override():
     assert c.dump_dir == "/data/csv"
     assert c.dump_interval == 1800.0
     assert c.retention_days == 30.0
+    assert c.battery_tiers is True
+    assert c.duty_on == 120.0
+    assert c.duty_off == 900.0
+    assert c.tier_hysteresis == 5.0
 
 
 def test_empty_credentials_become_none():
