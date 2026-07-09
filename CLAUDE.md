@@ -90,6 +90,20 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
   continuer à pinger `WATCHDOG=1` sinon systemd tue le service (le backoff court, lui, reste un
   `sleep` simple : garder `max_reconnect_delay` < `WatchdogSec`). Le **seam `spawn` prend la config**
   effective par palier : `Callable[[Config], WorkerHandle]`. Duty-cycle = perte de flux **assumée**.
+- **Stabilisation lien BLE (V0.5)** — `link_tuner.py` : sur signal faible (-80/-90 dBm) le churn
+  vient d'un **supervision timeout** BLE (défaut BlueZ **420 ms** ; `reason 0x08`). Le node
+  préférerait 2 s mais **le central (RPi) décide**, et **BlueZ 5.55 ignore la debugfs
+  `supervision_timeout` en central** (bug #717, prouvé terrain via `btmon`). ⇒ on impose le timeout
+  par une **`LE Connection Update` sur le lien vivant** (`hcitool lecup --timeout`), **une fois par
+  session** (chaque connexion = une session worker ; le respawn couvre chaque reconnexion — pas de
+  polling ni de suivi de handle). `tune_link` **ne lève jamais** (droits/hcitool/déconnexion logués).
+  Fonctions **pures/testables** (`parse_handle`, `build_lecup_argv`, `supervision_ok`) + frontière OS
+  `run=subprocess.run` injectable. Le worker construit le closure `tune` (si
+  `ble_supervision_timeout_ms>0`) et le passe à `run_one_session` (appelé après `link.open()`).
+  Opt-in ; **nécessite `CAP_NET_ADMIN`+`CAP_NET_RAW`** sur le service (émission HCI) — 2 lignes dans
+  `mbg.service`, **pas** de service root séparé (garde le réglage dans le worker, testé à 100 %).
+  Effet terrain : churn **~19-27/h → ~1,5/h** (compteur `link_quality`). Si lien < ~-95 dBm : passer
+  à la **RF** (dongle USB antenne externe, ou firmware `NRF52_BLE_TX_POWER 8`).
 - `__main__.py` — CLI. **L'ENV est la base de la config, la CLI override** (via
   `dataclasses.replace` : on n'override QUE les champs CLI → tout futur champ se propage seul,
   fin du bug « champ oublié »). Câble le superviseur avec `spawn_worker` + `get_context("fork")`
@@ -127,6 +141,9 @@ Les arguments CLI ne servent qu'en usage manuel/PoC et priment s'ils sont fourni
 - **V0.2** (fait) : API de contrôle / downlink (texte, télémétrie, admin node).
 - **V0.3** (fait) : monitoring — sonde SQLite (métriques node + qualité BLE), API + export CSV.
 - **V0.4** (fait) : paliers batterie + duty-cycle du lien BLE (adaptatif ; opt-in ; seuils dans le README).
+- **V0.5** (fait) : stabilisation du lien BLE sur signal faible — supervision timeout imposé au lien
+  vivant via `hcitool lecup` (opt-in ; nécessite CAP_NET_ADMIN). Voir `link_tuner.py`.
+- **V0.6** : transports alternatifs (USB-série / WiFi-TCP) si le matériel du node le permet.
 
 ## Conventions
 

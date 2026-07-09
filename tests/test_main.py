@@ -91,6 +91,13 @@ def test_api_token_propagated_from_env(captured_signals, monkeypatch):
     assert FakeSupervisor.last.config.api_token == "sekret"
 
 
+def test_main_ble_supervision_enabled(captured_signals, monkeypatch):
+    monkeypatch.setenv("MBG_BLE_SUPERVISION_TIMEOUT_MS", "6000")
+    rc = main([])
+    assert rc == 0
+    assert FakeSupervisor.last.config.ble_supervision_timeout_ms == 6000  # propagé au superviseur
+
+
 def test_build_serve_none_without_token():
     assert _build_serve(Config(), None) is None
 

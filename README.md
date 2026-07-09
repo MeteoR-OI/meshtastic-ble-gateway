@@ -28,6 +28,8 @@ MeshForge consomme.
 | **V0.2** | API de contrôle / downlink (envoi texte, télémétrie, admin node) | ✅ |
 | **V0.3** | Monitoring : sonde SQLite (métriques node + qualité BLE), API + export CSV | ✅ |
 | **V0.4** | Paliers batterie + duty-cycle du lien BLE (adaptatif selon la batterie du node) | ✅ |
+| **V0.5** | Stabilisation du lien BLE sur signal faible (supervision timeout via `hcitool lecup`) | ✅ |
+| **V0.6** | Transports alternatifs (USB-série / WiFi-TCP) si le matériel le permet | ⏳ |
 
 ## API de contrôle (downlink)
 
@@ -135,6 +137,31 @@ le lien, pour préserver **la batterie du node** (un lien BLE permanent empêche
 - **Télémétrie au changement de mode** : à chaque transition de palier, la session suivante
   **force un `sendTelemetry`** (broadcast) → la batterie fraîche est diffusée sur le mesh /
   MeshForge, annonçant le changement. Détails/variables : [`deploy/README.md`](deploy/README.md).
+
+### Stabilisation du lien BLE (V0.5)
+
+**Opt-in** (`MBG_BLE_SUPERVISION_TIMEOUT_MS=6000`, défaut 0 = off). Sur un lien faible
+(**-80/-90 dBm**), le node « churn » (coupe/relance toutes les 2-3 min). Diagnostic terrain :
+la coupure est un **supervision timeout** BLE (`reason 0x08`) — temps max sans paquet reçu avant
+que le lien soit déclaré mort. Le défaut BlueZ (RPi = *central*) est **420 ms** ; à -80/-90 dBm,
+~8 paquets manqués (~0,4 s de fading) suffisent à couper.
+
+Le node préférerait 2 s, mais **le central décide**, et BlueZ 5.55 **ignore** la debugfs
+`supervision_timeout` en central (bug [bluez #717](https://github.com/bluez/bluez/issues/717),
+vérifié via `btmon`). Le seul levier qui tienne est une **`LE Connection Update` initiée par le
+central sur le lien vivant** (`hcitool lecup`). Comme **chaque connexion BLE = une session
+worker**, on impose le supervision timeout **une fois par session**, dès le lien établi — pas de
+polling, et le respawn couvre naturellement chaque reconnexion.
+
+- **Effet mesuré terrain** : churn **~19-27 reconnexions/h → ~1,5/h** à 6 s de timeout
+  (**~94 %** de churn en moins), zéro `reason 0x08` résiduel. Se lit directement dans le compteur
+  `link_quality` de la sonde (V0.3).
+- **Prérequis** : `CAP_NET_ADMIN` + `CAP_NET_RAW` sur le service (émission d'une commande HCI) et
+  `hcitool` installé (paquet `bluez`). Voir le bloc dédié dans [`deploy/mbg.service`](deploy/mbg.service).
+- **Sûreté** : `link_tuner.tune_link` **ne lève jamais** — droits manquants, node déconnecté ou
+  `hcitool` absent sont logués, la session continue (au pire on retombe sur le churn d'origine).
+- **Si insuffisant** (lien durablement sous ~-95 dBm) : le levier devient **RF/matériel** — dongle
+  USB BLE à antenne externe côté RPi (+6-15 dB), ou firmware node `NRF52_BLE_TX_POWER 8` (+8 dB).
 
 ## Mécanisme retenu
 

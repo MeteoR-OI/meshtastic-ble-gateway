@@ -42,6 +42,10 @@ class Config:
     duty_on: float = 300.0  # palier critique : durée de la fenêtre de connexion (s)
     duty_off: float = 1800.0  # palier critique : durée de déconnexion entre fenêtres (s)
     tier_hysteresis: float = 3.0  # marge (%) anti-flapping entre paliers
+    # Stabilisation du lien BLE (V0.5). Opt-in ; nécessite CAP_NET_ADMIN sur le service.
+    # 0 = off. >0 = supervision timeout (ms) imposé au lien via `hcitool lecup` à chaque
+    # session (contourne le bug BlueZ #717 sur lien faible ; cf. link_tuner).
+    ble_supervision_timeout_ms: int = 0
 
     @classmethod
     def from_env(cls, env: Optional[Mapping[str, str]] = None) -> "Config":
@@ -73,4 +77,5 @@ class Config:
             duty_on=float(src.get("MBG_DUTY_ON", "300")),
             duty_off=float(src.get("MBG_DUTY_OFF", "1800")),
             tier_hysteresis=float(src.get("MBG_TIER_HYSTERESIS", "3")),
+            ble_supervision_timeout_ms=int(src.get("MBG_BLE_SUPERVISION_TIMEOUT_MS", "0")),
         )

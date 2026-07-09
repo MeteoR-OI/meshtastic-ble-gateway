@@ -16,6 +16,7 @@ import signal
 from typing import Callable
 
 from .config import Config
+from .link_tuner import tune_link
 from .mqtt_publisher import PahoPublisher
 from .node import MeshtasticNodeLink
 from .session import run_one_session
@@ -54,6 +55,7 @@ def _worker_body(
     publisher_cls=PahoPublisher,
     nodelink_cls=MeshtasticNodeLink,
     store_cls=MetricsStore,
+    tuner: Callable[[Config], bool] = tune_link,
 ) -> int:
     """Logique testable du worker (sans os._exit / signaux)."""
 
@@ -80,10 +82,16 @@ def _worker_body(
             store.record_node(data["node"], data["position"])
             store.record_neighbors(data["neighbors"])
 
+    # Stabilisation du lien BLE (V0.5) : opt-in via ble_supervision_timeout_ms > 0.
+    tune = None
+    if config.ble_supervision_timeout_ms > 0:
+        def tune():
+            tuner(config)
+
     try:
         session(
             config, publisher_factory, nodelink_factory, heartbeat, lambda: True,
-            commands=commands, monitor=monitor,
+            commands=commands, monitor=monitor, tune=tune,
         )
     except Exception as exc:  # noqa: BLE001 — toute panne = fin de session, le parent respawn
         log.warning("session worker interrompue : %s", exc)

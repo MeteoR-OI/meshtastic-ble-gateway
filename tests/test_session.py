@@ -162,6 +162,23 @@ def test_monitor_sampled_before_first_periodic_tick():
     assert len(monitored) == 1  # relevé précoce garanti malgré la session courte
 
 
+def test_tune_called_once_after_open():
+    pub = FakePublisher()
+    box = {}
+    events = []
+
+    def nf(addr, cb, on_lost):
+        box["link"] = FakeNodeLink(addr, cb)
+        box["link"].open = lambda: events.append("open")  # trace l'ordre open->tune
+        return box["link"]
+
+    run_one_session(
+        Config(), lambda: pub, nf, lambda: None, lambda: False,
+        tune=lambda: events.append("tune"),
+    )
+    assert events == ["open", "tune"]  # réglage exactement une fois, après l'établissement
+
+
 def test_stops_when_should_continue_false():
     pub = FakePublisher()
     box = {}
