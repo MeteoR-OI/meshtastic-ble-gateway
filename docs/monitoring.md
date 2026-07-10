@@ -14,9 +14,12 @@ sont actifs, la cadence suit **le palier** (15/30/60 min) et non `MBG_MONITOR_IN
 
 | Table | Écrivain | Contenu |
 |---|---|---|
-| `node_metrics` | worker | batterie, voltage, utilisation canal/air, uptime, position (lat/lon/alt) |
+| `node_metrics` | worker | **identité** (node_id, node_name), batterie, voltage, utilisation canal/air, uptime, position (lat/lon/alt) |
 | `neighbors` | worker | voisins directs (0-hop) : node_id, SNR, RSSI **radio**, last_heard |
 | `link_quality` | superviseur | **compteur de reconnexions** = signal de qualité du lien BLE |
+
+`GET /metrics` renvoie `{node, link, neighbors}` : `node` (dernier relevé, avec `node_id`/`node_name`),
+`link` (reconnexions), et un **agrégat voisins** `neighbors: {count, best_snr}` (dernier batch).
 
 `MBG_MONITOR_FORCE_TELEMETRY=true` force un `sendTelemetry` avant chaque relevé si le firmware ne
 rafraîchit pas passivement (coûte de l'airtime).

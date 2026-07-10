@@ -118,7 +118,10 @@ def test_get_unknown_route():
 
 class FakeMetrics:
     def latest(self):
-        return {"node": {"battery_level": 80}, "link": {"reconnects": 3}}
+        return {
+            "node": {"battery_level": 80, "node_id": "!abcd", "node_name": "MonNode"},
+            "link": {"reconnects": 3}, "neighbors": {"count": 2, "best_snr": 8.5},
+        }
 
     def history(self, since, limit):
         self.args = (since, limit)
@@ -128,11 +131,26 @@ class FakeMetrics:
 def test_metrics_route():
     status, body = handle_request("GET", "/metrics", _hdr("s"), "", "s", _ok, metrics=FakeMetrics())
     assert status == 200 and body["node"]["battery_level"] == 80
+    assert body["neighbors"] == {"count": 2, "best_snr": 8.5}
 
 
 def test_metrics_disabled_404():
     status, _ = handle_request("GET", "/metrics", _hdr("s"), "", "s", _ok, metrics=None)
     assert status == 404
+
+
+def test_info_route():
+    info = {"version": "0.7.0", "monitor_interval": 300, "battery_tiers": False}
+    status, body = handle_request("GET", "/info", _hdr("s"), "", "s", _ok, metrics=FakeMetrics(), info=info)
+    assert status == 200
+    assert body["version"] == "0.7.0" and body["monitor_interval"] == 300
+    assert body["node_id"] == "!abcd" and body["node_name"] == "MonNode"  # identité depuis la sonde
+
+
+def test_info_route_without_metrics():
+    # monitoring off -> pas d'identité, mais version/config quand même exposées
+    status, body = handle_request("GET", "/info", _hdr("s"), "", "s", _ok, metrics=None, info={"version": "0.7.0"})
+    assert status == 200 and body["version"] == "0.7.0" and body["node_id"] is None
 
 
 def test_history_route_parses_query():

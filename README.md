@@ -89,7 +89,8 @@ Déploiement RPi (systemd), y compris le cas **Buster** : **[docs/installation.m
 | **V0.4** | Paliers batterie + duty-cycle (adaptatif) | ✅ |
 | **V0.5** | Stabilisation du lien BLE sur signal faible | ✅ |
 | **V0.6** | Support Raspberry Pi OS Buster + requêtes vers un node distant | ✅ |
-| **V0.7** | Transports alternatifs (USB-série / WiFi-TCP) | ⏳ |
+| **V0.7** | Exposition identité node + `/info` (support de l'intégration WeeWX) | ✅ |
+| **V0.8** | Transports alternatifs (USB-série / WiFi-TCP) | ⏳ |
 
 Historique détaillé : [CHANGELOG.md](CHANGELOG.md).
 

@@ -5,7 +5,7 @@
 `handle_request` est **pur** (auth token + routage + validation) → testable à
 100 %. `serve` est l'adaptateur socket/thread (frontière OS, testé en intégration).
 Auth par en-tête `X-API-Token`. Routes : POST /send/text, /send/telemetry,
-/send/position, /request/position, /admin ; GET /health, /metrics, /history. Les
+/send/position, /request/position, /admin ; GET /health, /info, /metrics, /history. Les
 commandes POST sont relayées au worker via `dispatch` (déjà borné en
 timeout) qui renvoie `{"ok": bool, ...}`.
 """
@@ -59,9 +59,13 @@ def _status_for(result: Dict[str, Any]) -> int:
     return 400
 
 
-def _handle_get(route: str, query: str, metrics) -> Tuple[int, Dict[str, Any]]:
+def _handle_get(route: str, query: str, metrics, info) -> Tuple[int, Dict[str, Any]]:
     if route == "/health":
         return 200, {"ok": True, "status": "up"}
+    if route == "/info":
+        # Découverte (version + identité node) — ex. tuile installer. Identité depuis la sonde.
+        node = (metrics.latest().get("node") if metrics is not None else None) or {}
+        return 200, dict(info or {}, node_id=node.get("node_id"), node_name=node.get("node_name"))
     if route in ("/metrics", "/history"):
         if metrics is None:
             return 404, {"ok": False, "error": "monitoring désactivé"}
@@ -85,13 +89,15 @@ def handle_request(
     token: str,
     dispatch: Callable[[Dict[str, Any]], Dict[str, Any]],
     metrics=None,
+    info=None,
 ) -> Tuple[int, Dict[str, Any]]:
-    """Traite une requête (pur). `dispatch` relaie au worker ; `metrics` lit la base (GET)."""
+    """Traite une requête (pur). `dispatch` relaie au worker ; `metrics` lit la base (GET) ;
+    `info` = infos statiques (version, config) exposées par `/info`."""
     if not _authorized(headers, token):
         return 401, {"ok": False, "error": "non autorisé"}
     parsed = urlparse(path)
     if method == "GET":
-        return _handle_get(parsed.path, parsed.query, metrics)
+        return _handle_get(parsed.path, parsed.query, metrics, info)
     if method == "POST":
         try:
             payload = json.loads(body) if body else {}
@@ -105,7 +111,7 @@ def handle_request(
     return 404, {"ok": False, "error": "route inconnue"}
 
 
-def serve(host, port, token, timeout, submit, metrics, should_run) -> None:  # pragma: no cover — socket/thread
+def serve(host, port, token, timeout, submit, metrics, should_run, info=None) -> None:  # pragma: no cover — socket/thread
     """Boucle serveur HTTP jusqu'à ce que should_run() soit faux (frontière OS)."""
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -116,7 +122,7 @@ def serve(host, port, token, timeout, submit, metrics, should_run) -> None:  # p
         def _handle(self, method):
             length = int(self.headers.get("Content-Length") or 0)
             body = self.rfile.read(length).decode() if length else ""
-            status, payload = handle_request(method, self.path, self.headers, body, token, dispatch, metrics)
+            status, payload = handle_request(method, self.path, self.headers, body, token, dispatch, metrics, info)
             data = json.dumps(payload).encode()
             try:
                 self.send_response(status)

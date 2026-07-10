@@ -10,7 +10,7 @@ import signal
 from dataclasses import replace
 from typing import Optional, Sequence
 
-from . import api
+from . import __version__, api
 from .config import Config
 from .process_backend import spawn_worker
 from .storage import MetricsStore
@@ -24,10 +24,17 @@ def _build_serve(config: Config, metrics):
     if not config.api_token:
         return None
 
+    # Infos statiques exposées par GET /info (découverte : version + config).
+    info = {
+        "version": __version__,
+        "monitor_interval": config.monitor_interval,
+        "battery_tiers": config.battery_tiers,
+    }
+
     def serve(submit, should_run):
         api.serve(
             config.api_host, config.api_port, config.api_token,
-            config.control_timeout, submit, metrics, should_run,
+            config.control_timeout, submit, metrics, should_run, info,
         )
 
     return serve

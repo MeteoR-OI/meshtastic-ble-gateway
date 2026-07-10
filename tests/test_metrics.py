@@ -24,6 +24,19 @@ def test_position():
     assert metrics.position(info) == {"lat": -21.3, "lon": 55.4, "altitude": 289}
 
 
+def test_node_identity():
+    info = {"user": {"id": "!abcd1234", "longName": "MaBalise", "shortName": "MB"}}
+    assert metrics.node_identity(info) == {"node_id": "!abcd1234", "node_name": "MaBalise"}
+
+
+def test_node_identity_fallbacks():
+    # longName absent -> shortName ; user absent -> tout None
+    assert metrics.node_identity({"user": {"id": "!x", "shortName": "SN"}}) == {
+        "node_id": "!x", "node_name": "SN",
+    }
+    assert metrics.node_identity({}) == {"node_id": None, "node_name": None}
+
+
 def test_neighbors_filters_direct_and_self():
     nodes = {
         1: {"hopsAway": 0, "user": {"id": "!001"}, "snr": 6.0, "rssi": -90, "lastHeard": 10},
