@@ -28,8 +28,14 @@ BASE=http://<hote-passerelle>:8080
 | `POST` | `/request/position` | **requête** de position à un node **distant** (`dest` requis) |
 | `POST` | `/admin` | réglage curaté du node (`role`, `position_broadcast_secs`, `gps_mode`, `device_update_interval`) |
 | `GET` | `/health` | ping |
+| `GET` | `/info` | découverte : `version`, `node_id`, `node_name`, `monitor_interval`, `battery_tiers` |
 | `GET` | `/metrics` | dernier relevé de la sonde ([monitoring.md](monitoring.md)) |
 | `GET` | `/history` | série `node_metrics` |
+
+`GET /info` renvoie la **version** de la passerelle + l'**identité du node** (id + nom humain, dès
+qu'un relevé a été fait) + quelques réglages — utile pour la découverte (ex. tuile d'un installateur).
+`GET /metrics` inclut désormais `node.node_id`/`node.node_name` et un agrégat
+`neighbors: {count, best_snr}` ([monitoring.md](monitoring.md)).
 
 ## Exemples
 

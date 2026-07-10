@@ -29,6 +29,15 @@ def node_metrics(info: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def node_identity(info: Dict[str, Any]) -> Dict[str, Any]:
+    """Identité du node local (id + nom humain) depuis `getMyNodeInfo()['user']`."""
+    user = info.get("user") or {}
+    return {
+        "node_id": user.get("id"),
+        "node_name": user.get("longName") or user.get("shortName"),
+    }
+
+
 def position(info: Dict[str, Any]) -> Dict[str, Any]:
     pos = info.get("position") or {}
     return {"lat": pos.get("latitude"), "lon": pos.get("longitude"), "altitude": pos.get("altitude")}

@@ -161,6 +161,7 @@ def test_read_metrics_aggregates():
             "num": 9,
             "deviceMetrics": {"batteryLevel": 80},
             "position": {"latitude": -21.0},
+            "user": {"id": "!009", "longName": "MaBalise"},
         },
         nodesByNum={1: {"hopsAway": 0, "user": {"id": "!001"}, "snr": 5.0}},
     )
@@ -173,6 +174,7 @@ def test_read_metrics_aggregates():
     link.open()
     data = link.read_metrics()
     assert data["node"]["battery_level"] == 80
+    assert data["node"]["node_id"] == "!009" and data["node"]["node_name"] == "MaBalise"
     assert data["position"]["lat"] == -21.0
     assert data["neighbors"][0]["node_id"] == "!001"
 

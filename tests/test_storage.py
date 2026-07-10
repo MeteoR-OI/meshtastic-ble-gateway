@@ -6,18 +6,31 @@ from mbg.storage import MetricsStore
 
 def test_record_and_latest(tmp_path):
     store = MetricsStore(str(tmp_path / "m.db"), clock=lambda: 100.0)
-    store.record_node({"battery_level": 80, "voltage": 3.9}, {"lat": -21.3, "lon": 55.4})
+    store.record_node(
+        {"battery_level": 80, "voltage": 3.9, "node_id": "!abcd", "node_name": "MonNode"},
+        {"lat": -21.3, "lon": 55.4},
+    )
     store.record_link(3)
     latest = store.latest()
     assert latest["node"]["battery_level"] == 80
     assert latest["node"]["voltage"] == 3.9
     assert latest["node"]["lat"] == -21.3
+    assert latest["node"]["node_id"] == "!abcd" and latest["node"]["node_name"] == "MonNode"
     assert latest["link"]["reconnects"] == 3
 
 
 def test_latest_empty(tmp_path):
     store = MetricsStore(str(tmp_path / "m.db"))
-    assert store.latest() == {"node": None, "link": None}
+    assert store.latest() == {"node": None, "link": None, "neighbors": None}
+
+
+def test_latest_neighbors_aggregate(tmp_path):
+    store = MetricsStore(str(tmp_path / "m.db"), clock=lambda: 50.0)
+    store.record_neighbors([
+        {"node_id": "!aa", "snr": 5.0, "rssi": -100, "last_heard": 1},
+        {"node_id": "!bb", "snr": 8.5, "rssi": -90, "last_heard": 2},
+    ])
+    assert store.latest()["neighbors"] == {"count": 2, "best_snr": 8.5}  # dernier batch : count + max snr
 
 
 def test_history_and_since(tmp_path):

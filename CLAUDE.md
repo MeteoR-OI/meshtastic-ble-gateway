@@ -73,12 +73,16 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
   (+ timeout de repli). Broadcast = ACK implicite (ROUTING_APP from self), même chemin.
 - `api.py` — `handle_request(...)` **pur** (auth token + routage POST downlink via `dispatch`
   + GET monitoring via `metrics`) + `serve(...)` (adaptateur `http.server`, pragma/intégration).
-  API OPT-IN (token). GET `/metrics`, `/history` lisent le store ; POST `/send/*`, `/admin`.
+  API OPT-IN (token). GET `/health`, `/info` (version + identité node + config, pour la découverte),
+  `/metrics`, `/history` ; POST `/send/*`, `/admin`. `/info` reçoit un dict `info` statique
+  (version+config) + fusionne l'identité node lue via `metrics.latest()`.
 - **Monitoring / sonde (V0.3)** — `storage.py` : `MetricsStore` (SQLite stdlib, mode **WAL** →
   2 écrivains multi-process ; tables `node_metrics`/`neighbors`/`link_quality` ; `record_*`,
   `latest`, `history`, `prune`, `export_csv`). Connexion bornée par un context manager
   `_conn` (toujours fermée → pas de fuite). `metrics.py` : lecteurs **purs** (`node_metrics`,
-  `position`, `neighbors` 0-hop avec SNR/RSSI radio) depuis un fake iface. Le **worker**
+  `node_identity` = id+longName du node local, `position`, `neighbors` 0-hop avec SNR/RSSI radio)
+  depuis un fake iface. `node_metrics` stocke aussi `node_id`/`node_name` ; `store.latest()` ajoute
+  un agrégat `neighbors: {count, best_snr}` (dernier batch) — exposés par `/metrics` et `/info`. Le **worker**
   écrit node_metrics/neighbors (monitor injecté dans `run_one_session`) : **un relevé tôt
   dans chaque session** (dès le lien établi) **puis** à la cadence `monitor_interval` — sinon,
   lien instable oblige (sessions < `monitor_interval`), le tic périodique ne tomberait jamais
@@ -164,7 +168,10 @@ Les arguments CLI ne servent qu'en usage manuel/PoC et priment s'ils sont fourni
   vivant via `hcitool lecup` (opt-in ; nécessite CAP_NET_ADMIN). Voir `link_tuner.py`.
 - **V0.6** (fait) : support **Raspbian Buster** (Python/BlueZ 5.55 isolés, pin bleak, doc appairage/
   port) + **requêtes vers un node distant** (`/send/telemetry` avec `dest`, `/request/position`).
-- **V0.7** : transports alternatifs (USB-série / WiFi-TCP) si le matériel du node le permet.
+- **V0.7** (fait, côté mbg) : exposition de l'**identité du node** (id/longName dans `node_metrics`
+  + agrégat voisins) et endpoint **`GET /info`** (version + identité + config) — brique côté
+  passerelle de l'**intégration WeeWX** (extension `weewx-mbg` + tuile installer, autres repos).
+- **V0.8** : transports alternatifs (USB-série / WiFi-TCP) si le matériel du node le permet.
 
 ## Conventions
 

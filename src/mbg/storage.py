@@ -20,7 +20,8 @@ _TABLES = ("node_metrics", "neighbors", "link_quality")
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS node_metrics (
   ts REAL, battery_level INTEGER, voltage REAL, channel_util REAL,
-  air_util_tx REAL, uptime INTEGER, lat REAL, lon REAL, altitude INTEGER
+  air_util_tx REAL, uptime INTEGER, lat REAL, lon REAL, altitude INTEGER,
+  node_id TEXT, node_name TEXT
 );
 CREATE TABLE IF NOT EXISTS neighbors (
   ts REAL, node_id TEXT, snr REAL, rssi INTEGER, last_heard INTEGER
@@ -55,11 +56,12 @@ class MetricsStore:
         with self._conn(commit=True) as conn:
             conn.execute(
                 "INSERT INTO node_metrics (ts,battery_level,voltage,channel_util,air_util_tx,"
-                "uptime,lat,lon,altitude) VALUES (?,?,?,?,?,?,?,?,?)",
+                "uptime,lat,lon,altitude,node_id,node_name) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     self._clock(), metrics.get("battery_level"), metrics.get("voltage"),
                     metrics.get("channel_util"), metrics.get("air_util_tx"), metrics.get("uptime"),
                     pos.get("lat"), pos.get("lon"), pos.get("altitude"),
+                    metrics.get("node_id"), metrics.get("node_name"),
                 ),
             )
 
@@ -79,7 +81,16 @@ class MetricsStore:
         with self._conn() as conn:
             node = conn.execute("SELECT * FROM node_metrics ORDER BY ts DESC LIMIT 1").fetchone()
             link = conn.execute("SELECT * FROM link_quality ORDER BY ts DESC LIMIT 1").fetchone()
-        return {"node": dict(node) if node else None, "link": dict(link) if link else None}
+            nb = conn.execute(
+                "SELECT count(*) AS count, max(snr) AS best_snr FROM neighbors "
+                "WHERE ts = (SELECT max(ts) FROM neighbors)"
+            ).fetchone()
+        neighbors = {"count": nb["count"], "best_snr": nb["best_snr"]} if nb["count"] else None
+        return {
+            "node": dict(node) if node else None,
+            "link": dict(link) if link else None,
+            "neighbors": neighbors,
+        }
 
     def history(self, since: float = 0.0, limit: int = 1000) -> List[Dict[str, Any]]:
         with self._conn() as conn:
