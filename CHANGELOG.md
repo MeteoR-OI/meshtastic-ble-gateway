@@ -4,6 +4,16 @@ Toutes les évolutions notables. Format inspiré de [Keep a Changelog](https://k
 versionnage [SemVer](https://semver.org/lang/fr/). Notes et artefacts détaillés :
 [Releases GitHub](https://github.com/MeteoR-OI/meshtastic-ble-gateway/releases).
 
+## [0.7.0] — 2026-07-10
+### Ajouté
+- **Identité du node local** dans le monitoring : `getMyNodeInfo()['user']` (id + nom humain)
+  persisté en base (`node_metrics.node_id`/`node_name`) et exposé via `/metrics.node`.
+- **Agrégat voisins** dans `GET /metrics` : `neighbors: {count, best_snr}` (dernier batch).
+- **`GET /info`** (derrière token) : `{version, node_id, node_name, monitor_interval,
+  battery_tiers}` — surface de découverte pour l'intégration WeeWX et la tuile de l'installateur.
+
+Base de l'**intégration WeeWX** (extension `weewx-mbg`, skin, installateur — repos dédiés).
+
 ## [0.6.1] — 2026-07-09
 ### Corrigé
 - **Fin du churn BLE** : le superviseur force un `bluetoothctl disconnect` (borné) après chaque
