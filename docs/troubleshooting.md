@@ -1,5 +1,8 @@
 # Dépannage & caveats
 
+> Commandes de pilotage du service (start/stop/restart, statut, logs, boot) :
+> [installation.md § Gestion du service au quotidien](installation.md#gestion-du-service-au-quotidien).
+
 ## Le node se connecte mais aucune donnée ne remonte (Buster)
 
 **BlueZ 5.50** ne gère pas les notifications GATT attendues par bleak/meshtastic. → installer

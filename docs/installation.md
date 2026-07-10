@@ -11,6 +11,7 @@ MeshForge ([§4](#4-configuration-côté-meshforge)).
 - [1. Installer la passerelle](#1-installer-la-passerelle)
 - [2. Vérifier le node (read-only)](#2-vérifier-le-node-read-only)
 - [3. Service systemd](#3-service-systemd)
+  - [Gestion du service au quotidien](#gestion-du-service-au-quotidien)
 - [4. Configuration côté MeshForge](#4-configuration-côté-meshforge)
 - [5. Mise à jour](#5-mise-à-jour)
 
@@ -138,6 +139,33 @@ journalctl -u mbg -f                          # suivre les [uplink]
   **MAC** ; sur macOS = UUID/nom (le CLI accepte les deux via `--ble`).
 - Créer le répertoire des métriques si le monitoring est activé :
   `sudo install -d -o mbg -g mbg /var/lib/mbg`.
+
+### Gestion du service au quotidien
+
+Une fois installé, le service se pilote avec `systemctl` / `journalctl` :
+
+```bash
+# Cycle de vie
+sudo systemctl stop mbg        # arrêter (libère le BLE — utile pour un meshtastic --ble manuel)
+sudo systemctl start mbg       # démarrer
+sudo systemctl restart mbg     # redémarrer (après un git pull, un changement d'ENV, etc.)
+
+# État
+systemctl is-active mbg        # statut court : active / inactive / failed
+systemctl status mbg           # statut détaillé (PID, uptime, dernières lignes de log)
+
+# Logs
+sudo journalctl -u mbg -f                  # suivre en direct (Ctrl-C pour sortir)
+sudo journalctl -u mbg -n 50 --no-pager    # les 50 dernières lignes
+
+# Démarrage au boot
+sudo systemctl enable mbg      # redémarrage auto au boot (état par défaut après §3)
+sudo systemctl disable mbg     # ne plus démarrer au boot
+```
+
+> Le BLE n'accepte **qu'un seul client à la fois** : pour lancer un `meshtastic --ble …` à la
+> main (diagnostic, `--export-config`), faire d'abord `sudo systemctl stop mbg`, puis
+> `sudo systemctl start mbg` une fois terminé.
 
 ## 4. Configuration côté MeshForge
 
