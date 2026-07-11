@@ -14,7 +14,9 @@ Enseignements Phase 0 (T114 réel, meshtastic 2.7.10 / bleak 1.1.1) :
   relire et vérifier — et jamais de `close()` sur l'interface pré-reboot (gèle sur
   lien mort, la leçon fondatrice de la passerelle) ;
 - regrouper toutes les écritures dans UNE transaction pour minimiser les reboots
-  (et ne rien écrire du tout si la config est déjà conforme : zéro reboot).
+  (et ne rien écrire du tout si la config est déjà conforme : zéro reboot) ;
+- l'entrée réelle (`cli`) SORT via `os._exit` : les threads non-daemon de bleak/meshtastic
+  gèleraient un arrêt normal, surtout sur le chemin exit-2 (hw-test T114 2026-07-11).
 
 À lancer passerelle mbg ARRÊTÉE (BLE = 1 seul client). Le relais MQTT est inchangé.
 """
@@ -23,6 +25,8 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
+import sys
 import threading
 import time
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple
@@ -350,5 +354,22 @@ def main(
     return code
 
 
+def cli(argv: Optional[Sequence[str]] = None, *, terminate: Callable[[int], None] = os._exit, **kwargs) -> None:
+    """Frontière OS : imprime le JSON (via `main`) puis SORT DUR (`os._exit`).
+
+    Une `BLEInterface` meshtastic/bleak réelle laisse des threads **non-daemon**
+    vivants ; un arrêt normal (`raise SystemExit`) les JOINDRAIT et **gèlerait** le
+    process — surtout sur le chemin exit-2 (reconnexion épuisée), où l'interface
+    pré-reboot n'est volontairement jamais fermée. Observé au hw-test T114 (2026-07-11) :
+    hang ~19 min, JSON jamais émis (stdout bufferisé hors TTY, flush atexit jamais
+    atteint). On flush explicitement puis on court-circuite via `os._exit` — la leçon
+    fondatrice du projet (cf. `worker.run_worker`). `terminate` est un seam de test.
+    """
+    code = main(argv, **kwargs)
+    sys.stdout.flush()
+    sys.stderr.flush()
+    terminate(code)
+
+
 if __name__ == "__main__":  # pragma: no cover
-    raise SystemExit(main())
+    cli()

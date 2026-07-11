@@ -6,6 +6,10 @@ fidèle) ; le reboot post-commit est simulé par le factory (l'interface pré-re
 meurt, la reconnexion relit l'état persisté — ou pas, pour le cas d'échec).
 """
 import json
+import os
+import subprocess
+import sys
+import threading
 
 import pytest
 from meshtastic.protobuf import channel_pb2, localonly_pb2
@@ -404,3 +408,47 @@ def test_main_apply_verify_failure_exit_code_passthrough():
     )
     assert code == 1
     assert json.loads(printed[0])["applied"] is False
+
+
+# --- terminaison dure (cli / os._exit) — finding hw-test T114 2026-07-11 ------
+
+
+def test_cli_flushes_json_then_terminates_hard():
+    # Un thread NON-daemon résiduel gèlerait un arrêt normal (raise SystemExit joindrait
+    # le thread). cli() DOIT atteindre terminate() malgré lui (en prod = os._exit).
+    ev = threading.Event()
+    residual = threading.Thread(target=ev.wait, daemon=False)
+    residual.start()
+    try:
+        node = conformant_node(_args("--inspect"))
+        printed, seen = [], {}
+        provision.cli(
+            ["--mac", "AA:BB:CC:DD:EE:FF", "--inspect"],
+            terminate=lambda c: seen.setdefault("code", c),
+            interface_factory=lambda a: FakeIface(node),
+            sleep=lambda s: None, thread_factory=ImmediateThread, out=printed.append,
+        )
+        assert seen["code"] == 0
+        assert json.loads(printed[0])["applied"] is False  # JSON émis AVANT terminate
+    finally:
+        ev.set()
+        residual.join()
+
+
+def test_cli_terminates_under_residual_nondaemon_thread():
+    # Terminaison EFFECTIVE (pas seulement la valeur de retour) : un vrai subprocess
+    # reproduit le chemin exit-2 AVEC un thread non-daemon vivant. Sans os._exit il
+    # hangerait -> le timeout ci-dessous lèverait TimeoutExpired (échec du test).
+    repo = os.path.dirname(os.path.dirname(__file__))
+    probe = os.path.join(repo, "tests", "hang_probe.py")
+    env = dict(os.environ, PYTHONPATH=os.path.join(repo, "src"))
+    proc = subprocess.run(
+        [sys.executable, probe], env=env, capture_output=True, text=True, timeout=30,
+    )
+    assert proc.returncode == 2, proc.stderr
+    payload = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert payload == {
+        "node_id": "!534bbea5", "node_name": "N",
+        "applied": None, "committed": True, "verified": False,
+        "warning": provision.COMMITTED_UNVERIFIED_WARNING,
+    }

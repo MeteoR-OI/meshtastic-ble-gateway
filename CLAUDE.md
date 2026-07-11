@@ -148,7 +148,13 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
   connect initial (`RECONNECT_*` : 10 essais / ≥150 s, `REBOOT_WAIT` 120 s — finding hw-test
   2026-07-11) ; l'iface pré-reboot n'est **jamais**
   fermée et tout `close()` passe par `_close_quietly` (thread + join borné — close() gèle sur
-  lien mort). Creds CLI absents = ceux du node conservés (§7.3). Tout injectable
+  lien mort). **L'entrée réelle `cli()` SORT via `os._exit`** (flush stdout d'abord) : une
+  `BLEInterface` bleak/meshtastic laisse des threads **non-daemon** qui gèleraient un arrêt
+  normal (`raise SystemExit` les joindrait) — hang confirmé au 2ᵉ hw-test T114 sur le chemin
+  exit-2 ; même isolation que le worker de la passerelle. Testé : seam `terminate` injectable
+  (unité) **+ subprocess réel sous timeout** avec thread non-daemon résiduel (`tests/hang_probe.py`
+  — prouve la terminaison EFFECTIVE, pas juste la valeur de retour ; la couverture fake masquait
+  le hang). Creds CLI absents = ceux du node conservés (§7.3). Tout injectable
   (factory/sleep/thread) → 100 % testé sans matériel ; `n'appaire PAS` (rôle installateur).
 
 ## Config : ENV = base, CLI = override

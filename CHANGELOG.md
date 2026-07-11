@@ -8,7 +8,8 @@ versionnage [SemVer](https://semver.org/lang/fr/). Notes et artefacts détaillé
 ### Ajouté
 - **Outil de provisionnement** `python -m mbg.provision` (`--inspect`/`--apply`) : lit/écrit la
   config MQTT + position du node par BLE (une seule transaction, retry BLE, gestion du reboot
-  post-commit avec budget de reconnexion patient et **exit 2 = commité-mais-non-vérifié**),
+  post-commit avec budget de reconnexion patient et **exit 2 = commité-mais-non-vérifié** ;
+  sortie dure via `os._exit` pour ne jamais geler sur les threads non-daemon de bleak),
   sortie JSON stable pour l'installateur — voir [docs/provision.md](docs/provision.md).
 - **Statut d'onboarding dans `GET /info`** : `broker`, `mqtt_proxy_ok`, `map_reporting`, lus de la
   config MQTT du node par la sonde (colonnes `node_metrics.mqtt_*`, migration auto des bases

@@ -84,3 +84,8 @@ appliqué (le node reboote juste lentement, ~2 min pour ré-annoncer) — ne PAS
   (~2 min, plancher de ré-annonce observé) et **rouvre une connexion fraîche pour relire et
   vérifier**, avec un **budget patient distinct** du connect initial (10 tentatives, ≥ 150 s).
   L'interface pré-reboot n'est jamais fermée (`close()` meshtastic gèle sur lien mort).
+- **Sortie dure (`os._exit`)** : une `BLEInterface` meshtastic/bleak laisse des threads
+  **non-daemon** vivants ; un arrêt normal les joindrait et **gèlerait** le process (surtout
+  sur le chemin exit-2, où l'interface pré-reboot n'est pas fermée). L'outil flush stdout puis
+  sort via `os._exit` — le JSON est donc toujours émis et le process se termine, même reconnexion
+  échouée. C'est la même isolation que la passerelle (worker jetable).
