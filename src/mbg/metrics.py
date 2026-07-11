@@ -38,6 +38,23 @@ def node_identity(info: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def mqtt_status(mqtt_config: Any) -> Dict[str, Any]:
+    """Statut MQTT du node depuis `localNode.moduleConfig.mqtt` (onboarding, CONTRACTS §3).
+
+    `mqtt_proxy_ok` = module MQTT activé ET proxy client activé — c'est la paire qui
+    fait remonter le trafic du node via la passerelle. Fail-soft : config absente
+    (localNode pas encore chargé, fake incomplet) -> tous les champs à None.
+    """
+    if mqtt_config is None:
+        return {"mqtt_broker": None, "mqtt_proxy_ok": None, "mqtt_map_reporting": None}
+    return {
+        "mqtt_broker": getattr(mqtt_config, "address", None) or None,
+        "mqtt_proxy_ok": bool(getattr(mqtt_config, "enabled", False))
+        and bool(getattr(mqtt_config, "proxy_to_client_enabled", False)),
+        "mqtt_map_reporting": bool(getattr(mqtt_config, "map_reporting_enabled", False)),
+    }
+
+
 def position(info: Dict[str, Any]) -> Dict[str, Any]:
     pos = info.get("position") or {}
     return {"lat": pos.get("latitude"), "lon": pos.get("longitude"), "altitude": pos.get("altitude")}

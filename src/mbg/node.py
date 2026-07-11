@@ -119,9 +119,12 @@ class MeshtasticNodeLink:
         return self._liveness(self._iface)
 
     def read_metrics(self) -> dict:
-        """Relève les métriques du node (device, identité, position, voisins) — sans I/O radio."""
+        """Relève les métriques du node (device, identité, statut MQTT, position, voisins) — sans I/O radio."""
         info = self._iface.getMyNodeInfo() or {}
-        node = dict(metrics.node_metrics(info), **metrics.node_identity(info))
+        # Statut MQTT (onboarding) : lu de la config LOCALE du node (pas d'I/O radio).
+        module_config = getattr(getattr(self._iface, "localNode", None), "moduleConfig", None)
+        mqtt = metrics.mqtt_status(getattr(module_config, "mqtt", None))
+        node = dict(metrics.node_metrics(info), **metrics.node_identity(info), **mqtt)
         nodes_by_num = getattr(self._iface, "nodesByNum", None) or {}
         return {
             "node": node,

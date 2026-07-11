@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 import os
+import sqlite3
 
 from mbg.storage import MetricsStore
 
@@ -17,6 +18,39 @@ def test_record_and_latest(tmp_path):
     assert latest["node"]["lat"] == -21.3
     assert latest["node"]["node_id"] == "!abcd" and latest["node"]["node_name"] == "MonNode"
     assert latest["link"]["reconnects"] == 3
+
+
+def test_record_and_latest_mqtt_status(tmp_path):
+    store = MetricsStore(str(tmp_path / "m.db"))
+    store.record_node(
+        {"battery_level": 80, "mqtt_broker": "mqtt-mt.meteor-oi.re",
+         "mqtt_proxy_ok": True, "mqtt_map_reporting": False},
+    )
+    node = store.latest()["node"]
+    assert node["mqtt_broker"] == "mqtt-mt.meteor-oi.re"
+    assert node["mqtt_proxy_ok"] == 1 and node["mqtt_map_reporting"] == 0  # bool -> 0/1 SQLite
+
+
+def test_migrates_legacy_db(tmp_path):
+    # Base créée AVANT les colonnes MQTT (schéma v0.7) : l'init doit les ajouter
+    # (CREATE TABLE IF NOT EXISTS n'ajoute jamais de colonne).
+    path = str(tmp_path / "legacy.db")
+    conn = sqlite3.connect(path)
+    conn.execute(
+        "CREATE TABLE node_metrics (ts REAL, battery_level INTEGER, voltage REAL,"
+        " channel_util REAL, air_util_tx REAL, uptime INTEGER, lat REAL, lon REAL,"
+        " altitude INTEGER, node_id TEXT, node_name TEXT)"
+    )
+    conn.execute("INSERT INTO node_metrics (ts, battery_level) VALUES (1.0, 42)")
+    conn.commit()
+    conn.close()
+    store = MetricsStore(path)
+    store.record_node({"battery_level": 50, "mqtt_broker": "b", "mqtt_proxy_ok": True})
+    node = store.latest()["node"]
+    assert node["battery_level"] == 50 and node["mqtt_broker"] == "b"
+    # l'ancienne ligne survit, colonnes migrées à NULL
+    first = store.history()[-1]
+    assert first["battery_level"] == 42 and first["mqtt_broker"] is None
 
 
 def test_latest_empty(tmp_path):

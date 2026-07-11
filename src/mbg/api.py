@@ -59,13 +59,26 @@ def _status_for(result: Dict[str, Any]) -> int:
     return 400
 
 
+def _bool_or_none(value: Any) -> Optional[bool]:
+    """SQLite rend les booléens en 0/1 (et NULL en None) — on ré-expose un vrai bool."""
+    return None if value is None else bool(value)
+
+
 def _handle_get(route: str, query: str, metrics, info) -> Tuple[int, Dict[str, Any]]:
     if route == "/health":
         return 200, {"ok": True, "status": "up"}
     if route == "/info":
-        # Découverte (version + identité node) — ex. tuile installer. Identité depuis la sonde.
+        # Découverte (version + identité node + statut onboarding, CONTRACTS §3) —
+        # ex. tuile installer, obs weewx-mbg. Tout vient de la sonde (dernier relevé).
         node = (metrics.latest().get("node") if metrics is not None else None) or {}
-        return 200, dict(info or {}, node_id=node.get("node_id"), node_name=node.get("node_name"))
+        return 200, dict(
+            info or {},
+            node_id=node.get("node_id"),
+            node_name=node.get("node_name"),
+            broker=node.get("mqtt_broker"),
+            mqtt_proxy_ok=_bool_or_none(node.get("mqtt_proxy_ok")),
+            map_reporting=_bool_or_none(node.get("mqtt_map_reporting")),
+        )
     if route in ("/metrics", "/history"):
         if metrics is None:
             return 404, {"ok": False, "error": "monitoring désactivé"}

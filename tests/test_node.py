@@ -177,6 +177,31 @@ def test_read_metrics_aggregates():
     assert data["node"]["node_id"] == "!009" and data["node"]["node_name"] == "MaBalise"
     assert data["position"]["lat"] == -21.0
     assert data["neighbors"][0]["node_id"] == "!001"
+    # pas de localNode sur cette iface -> statut MQTT inconnu (fail-soft)
+    assert data["node"]["mqtt_broker"] is None and data["node"]["mqtt_proxy_ok"] is None
+
+
+def test_read_metrics_includes_mqtt_status():
+    iface = SimpleNamespace(
+        getMyNodeInfo=lambda: {"user": {"id": "!009"}},
+        nodesByNum={},
+        localNode=SimpleNamespace(
+            moduleConfig=SimpleNamespace(
+                mqtt=SimpleNamespace(address="mqtt-mt.meteor-oi.re", enabled=True,
+                                     proxy_to_client_enabled=True, map_reporting_enabled=False)
+            )
+        ),
+    )
+    link = MeshtasticNodeLink(
+        "addr", lambda m: None,
+        interface_factory=lambda a: iface,
+        subscribe=lambda h, t: None,
+        unsubscribe=lambda h, t: None,
+    )
+    link.open()
+    node = link.read_metrics()["node"]
+    assert node["mqtt_broker"] == "mqtt-mt.meteor-oi.re"
+    assert node["mqtt_proxy_ok"] is True and node["mqtt_map_reporting"] is False
 
 
 def test_send_delegates_to_executor():

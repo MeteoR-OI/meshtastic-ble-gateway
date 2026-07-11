@@ -21,7 +21,8 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS node_metrics (
   ts REAL, battery_level INTEGER, voltage REAL, channel_util REAL,
   air_util_tx REAL, uptime INTEGER, lat REAL, lon REAL, altitude INTEGER,
-  node_id TEXT, node_name TEXT
+  node_id TEXT, node_name TEXT,
+  mqtt_broker TEXT, mqtt_proxy_ok INTEGER, mqtt_map_reporting INTEGER
 );
 CREATE TABLE IF NOT EXISTS neighbors (
   ts REAL, node_id TEXT, snr REAL, rssi INTEGER, last_heard INTEGER
@@ -30,6 +31,14 @@ CREATE TABLE IF NOT EXISTS link_quality (ts REAL, reconnects INTEGER);
 CREATE INDEX IF NOT EXISTS idx_node_ts ON node_metrics(ts);
 """
 
+# Colonnes ajoutées après coup (statut MQTT, onboarding) : `CREATE TABLE IF NOT EXISTS`
+# n'ajoute jamais de colonne, les bases déjà en prod doivent être migrées à l'init.
+_MIGRATIONS = (
+    ("node_metrics", "mqtt_broker", "TEXT"),
+    ("node_metrics", "mqtt_proxy_ok", "INTEGER"),
+    ("node_metrics", "mqtt_map_reporting", "INTEGER"),
+)
+
 
 class MetricsStore:
     def __init__(self, db_path: str, *, clock: Callable[[], float] = time.time) -> None:
@@ -37,6 +46,14 @@ class MetricsStore:
         self._clock = clock
         with self._conn(commit=True) as conn:
             conn.executescript(_SCHEMA)
+            self._migrate(conn)
+
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection) -> None:
+        for table, column, sql_type in _MIGRATIONS:
+            cols = {row["name"] for row in conn.execute("PRAGMA table_info(%s)" % table)}
+            if column not in cols:
+                conn.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, column, sql_type))
 
     @contextlib.contextmanager
     def _conn(self, commit: bool = False) -> Iterator[sqlite3.Connection]:
@@ -56,12 +73,15 @@ class MetricsStore:
         with self._conn(commit=True) as conn:
             conn.execute(
                 "INSERT INTO node_metrics (ts,battery_level,voltage,channel_util,air_util_tx,"
-                "uptime,lat,lon,altitude,node_id,node_name) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                "uptime,lat,lon,altitude,node_id,node_name,"
+                "mqtt_broker,mqtt_proxy_ok,mqtt_map_reporting) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     self._clock(), metrics.get("battery_level"), metrics.get("voltage"),
                     metrics.get("channel_util"), metrics.get("air_util_tx"), metrics.get("uptime"),
                     pos.get("lat"), pos.get("lon"), pos.get("altitude"),
                     metrics.get("node_id"), metrics.get("node_name"),
+                    metrics.get("mqtt_broker"), metrics.get("mqtt_proxy_ok"),
+                    metrics.get("mqtt_map_reporting"),
                 ),
             )
 

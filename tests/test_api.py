@@ -119,7 +119,9 @@ def test_get_unknown_route():
 class FakeMetrics:
     def latest(self):
         return {
-            "node": {"battery_level": 80, "node_id": "!abcd", "node_name": "MonNode"},
+            "node": {"battery_level": 80, "node_id": "!abcd", "node_name": "MonNode",
+                     # comme en base SQLite : booléens en 0/1
+                     "mqtt_broker": "mqtt-mt.meteor-oi.re", "mqtt_proxy_ok": 1, "mqtt_map_reporting": 0},
             "link": {"reconnects": 3}, "neighbors": {"count": 2, "best_snr": 8.5},
         }
 
@@ -145,12 +147,16 @@ def test_info_route():
     assert status == 200
     assert body["version"] == "0.7.0" and body["monitor_interval"] == 300
     assert body["node_id"] == "!abcd" and body["node_name"] == "MonNode"  # identité depuis la sonde
+    # Statut onboarding (CONTRACTS §3) : lu de la sonde, 0/1 SQLite -> vrais booléens.
+    assert body["broker"] == "mqtt-mt.meteor-oi.re"
+    assert body["mqtt_proxy_ok"] is True and body["map_reporting"] is False
 
 
 def test_info_route_without_metrics():
     # monitoring off -> pas d'identité, mais version/config quand même exposées
     status, body = handle_request("GET", "/info", _hdr("s"), "", "s", _ok, metrics=None, info={"version": "0.7.0"})
     assert status == 200 and body["version"] == "0.7.0" and body["node_id"] is None
+    assert body["broker"] is None and body["mqtt_proxy_ok"] is None and body["map_reporting"] is None
 
 
 def test_history_route_parses_query():
