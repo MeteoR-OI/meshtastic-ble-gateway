@@ -75,13 +75,19 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
   + GET monitoring via `metrics`) + `serve(...)` (adaptateur `http.server`, pragma/intégration).
   API OPT-IN (token). GET `/health`, `/info` (version + identité node + config, pour la découverte),
   `/metrics`, `/history` ; POST `/send/*`, `/admin`. `/info` reçoit un dict `info` statique
-  (version+config) + fusionne l'identité node lue via `metrics.latest()`.
+  (version+config) + fusionne l'identité node lue via `metrics.latest()` **et le statut
+  onboarding** `broker`/`mqtt_proxy_ok`/`map_reporting` (CONTRACTS onboarding §3, consommé par
+  weewx-mbg) — mêmes colonnes sonde, 0/1 SQLite → vrais booléens, `null` si monitoring off.
 - **Monitoring / sonde (V0.3)** — `storage.py` : `MetricsStore` (SQLite stdlib, mode **WAL** →
   2 écrivains multi-process ; tables `node_metrics`/`neighbors`/`link_quality` ; `record_*`,
   `latest`, `history`, `prune`, `export_csv`). Connexion bornée par un context manager
   `_conn` (toujours fermée → pas de fuite). `metrics.py` : lecteurs **purs** (`node_metrics`,
   `node_identity` = id+longName du node local, `position`, `neighbors` 0-hop avec SNR/RSSI radio)
-  depuis un fake iface. `node_metrics` stocke aussi `node_id`/`node_name` ; `store.latest()` ajoute
+  depuis un fake iface. `node_metrics` stocke aussi `node_id`/`node_name` + le **statut MQTT**
+  `mqtt_broker`/`mqtt_proxy_ok`/`mqtt_map_reporting` (lu de `localNode.moduleConfig.mqtt` par
+  `metrics.mqtt_status`, sans I/O radio ; `mqtt_proxy_ok` = `enabled` ET `proxy_to_client_enabled` ;
+  colonnes ajoutées par **migration auto** `ALTER TABLE` à l'init — les bases de prod pré-existantes
+  survivent) ; `store.latest()` ajoute
   un agrégat `neighbors: {count, best_snr}` (dernier batch) — exposés par `/metrics` et `/info`. Le **worker**
   écrit node_metrics/neighbors (monitor injecté dans `run_one_session`) : **un relevé tôt
   dans chaque session** (dès le lien établi) **puis** à la cadence `monitor_interval` — sinon,
@@ -127,6 +133,18 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
 - **Downlink** : API (thread du superviseur) → `Supervisor.submit` (worker connecté sinon
   503) → queue → worker → `link.send()` → `control.execute_command`. Un write qui gèle →
   worker SIGKILL (isolation). C'est le SEUL point qui rompt le « receive-only ».
+- **Provisionnement (épic onboarding)** — `provision.py` : outil CLI **hors service**
+  (`python -m mbg.provision --mac … --inspect|--apply`, mbg ARRÊTÉE : BLE = 1 client) qui
+  lit/écrit `moduleConfig.mqtt` + `localConfig.position` + `uplink_enabled` du canal primaire.
+  Sortie = JSON stable (CONTRACTS onboarding §2) sur stdout, logs stderr ; exit 0 = opération
+  pleinement réussie. Écritures regroupées en **UNE transaction** (`beginSettingsTransaction` →
+  `writeConfig` sections modifiées seulement → commit), **rien d'écrit si déjà conforme** (zéro
+  reboot). Contraintes Phase 0 (T114 réel) : **retry connexion + backoff** (`connect_with_retry`),
+  le node **REBOOTE au commit** → commit **fire-and-forget** (thread daemon + join court) puis
+  reconnexion fraîche pour vérifier (`matches_target`) ; l'iface pré-reboot n'est **jamais**
+  fermée et tout `close()` passe par `_close_quietly` (thread + join borné — close() gèle sur
+  lien mort). Creds CLI absents = ceux du node conservés (§7.3). Tout injectable
+  (factory/sleep/thread) → 100 % testé sans matériel ; `n'appaire PAS` (rôle installateur).
 
 ## Config : ENV = base, CLI = override
 
@@ -171,6 +189,10 @@ Les arguments CLI ne servent qu'en usage manuel/PoC et priment s'ils sont fourni
 - **V0.7** (fait, côté mbg) : exposition de l'**identité du node** (id/longName dans `node_metrics`
   + agrégat voisins) et endpoint **`GET /info`** (version + identité + config) — brique côté
   passerelle de l'**intégration WeeWX** (extension `weewx-mbg` + tuile installer, autres repos).
+- **Épic onboarding, phase gateway** (fait, branche `feat/provision-tool`) : outil
+  **`mbg.provision`** (config MQTT+position du node par BLE, contrat JSON pour l'installateur)
+  + **statut onboarding dans `/info`** (`broker`/`mqtt_proxy_ok`/`map_reporting` via la sonde).
+  Contrats figés : `.agent-bus/CONTRACTS-onboarding.md` (hors repo). Voir `docs/provision.md`.
 - **V0.8** : transports alternatifs (USB-série / WiFi-TCP) si le matériel du node le permet.
 
 ## Conventions

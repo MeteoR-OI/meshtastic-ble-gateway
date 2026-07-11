@@ -28,7 +28,7 @@ BASE=http://<hote-passerelle>:8080
 | `POST` | `/request/position` | **requête** de position à un node **distant** (`dest` requis) |
 | `POST` | `/admin` | réglage curaté du node (`role`, `position_broadcast_secs`, `gps_mode`, `device_update_interval`) |
 | `GET` | `/health` | ping |
-| `GET` | `/info` | découverte : `version`, `node_id`, `node_name`, `monitor_interval`, `battery_tiers` |
+| `GET` | `/info` | découverte : `version`, `node_id`, `node_name`, `monitor_interval`, `battery_tiers`, `broker`, `mqtt_proxy_ok`, `map_reporting` |
 | `GET` | `/metrics` | dernier relevé de la sonde ([monitoring.md](monitoring.md)) |
 | `GET` | `/history` | série `node_metrics` |
 
@@ -36,6 +36,14 @@ BASE=http://<hote-passerelle>:8080
 qu'un relevé a été fait) + quelques réglages — utile pour la découverte (ex. tuile d'un installateur).
 `GET /metrics` inclut désormais `node.node_id`/`node.node_name` et un agrégat
 `neighbors: {count, best_snr}` ([monitoring.md](monitoring.md)).
+
+`GET /info` expose aussi le **statut d'onboarding** du node (consommé par l'intégration WeeWX) :
+`broker` (l'`address` MQTT configurée sur le node), `mqtt_proxy_ok` (module MQTT activé **et**
+proxy client activé — la paire qui fait remonter le trafic via la passerelle) et `map_reporting`
+(`map_reporting_enabled`). Ces champs sont lus de la **config MQTT locale du node** par la sonde
+(un relevé en début de chaque session BLE, puis à la cadence du monitoring) : ils valent `null`
+si le monitoring est désactivé (`MBG_MONITOR_INTERVAL=0`) ou si aucun relevé n'a encore eu lieu.
+Pour configurer le node lui-même, voir [provision.md](provision.md).
 
 ## Exemples
 
