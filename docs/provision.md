@@ -61,10 +61,19 @@ réellement modifiées sont écrites, et **si le node est déjà conforme, rien 
 - `needs_register` : `!broker_matches || !creds_present` — l'appelant (installateur) décide
   alors de ne pas activer la passerelle et de renvoyer vers la page d'inscription.
 - `applied` : `--apply` uniquement — la relecture post-reboot correspond à la cible.
-- En cas d'échec (connexion BLE impossible, erreur inattendue) : `{"error": "…"}`.
+- En cas d'échec dur (connexion BLE impossible, erreur inattendue) : `{"error": "…"}`.
 
-**Exit code** : `0` si l'opération a pleinement réussi (`--inspect` lu, ou `--apply` vérifié) ;
-`≠0` sinon (le JSON est émis dans tous les cas).
+## Codes de sortie
+
+| Code | Sens | JSON |
+|---|---|---|
+| `0` | succès **vérifié** (`--inspect` lu, ou `--apply` relu et conforme) | contrat complet, `"applied": true` |
+| `2` | **commité-mais-non-vérifié** : la transaction est partie mais le node n'a pas ré-annoncé dans le budget de reconnexion | `{"node_id": …, "node_name": …, "applied": null, "committed": true, "verified": false, "warning": "…"}` |
+| `1` | échec dur (BLE jamais établi, vérification en désaccord avec la cible, erreur inattendue) | `{"error": "…"}` ou contrat avec `"applied": false` |
+
+⚠️ **L'appelant DOIT traiter `2` comme un succès provisoire** : le write est très probablement
+appliqué (le node reboote juste lentement, ~2 min pour ré-annoncer) — ne PAS conclure à un
+échec d'onboarding ; relancer un `--inspect` un peu plus tard pour confirmer.
 
 ## Robustesse BLE (validée sur T114 réel)
 
@@ -72,5 +81,6 @@ réellement modifiées sont écrites, et **si le node est déjà conforme, rien 
   échoue fréquemment (timeout), c'est normal.
 - **Le node reboote après le commit** : le commit est lancé en *fire-and-forget* (thread
   daemon + join court — l'appel peut ne jamais rendre la main), puis l'outil attend le reboot
-  et **rouvre une connexion fraîche pour relire et vérifier**. L'interface pré-reboot n'est
-  jamais fermée (`close()` meshtastic gèle sur lien mort).
+  (~2 min, plancher de ré-annonce observé) et **rouvre une connexion fraîche pour relire et
+  vérifier**, avec un **budget patient distinct** du connect initial (10 tentatives, ≥ 150 s).
+  L'interface pré-reboot n'est jamais fermée (`close()` meshtastic gèle sur lien mort).

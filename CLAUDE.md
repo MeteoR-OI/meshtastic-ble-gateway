@@ -136,12 +136,17 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
 - **Provisionnement (épic onboarding)** — `provision.py` : outil CLI **hors service**
   (`python -m mbg.provision --mac … --inspect|--apply`, mbg ARRÊTÉE : BLE = 1 client) qui
   lit/écrit `moduleConfig.mqtt` + `localConfig.position` + `uplink_enabled` du canal primaire.
-  Sortie = JSON stable (CONTRACTS onboarding §2) sur stdout, logs stderr ; exit 0 = opération
-  pleinement réussie. Écritures regroupées en **UNE transaction** (`beginSettingsTransaction` →
+  Sortie = JSON stable (CONTRACTS onboarding §2) sur stdout, logs stderr ; **exit 0 = vérifié,
+  2 = commité-mais-non-vérifié** (`{applied:null, committed:true, verified:false, warning}` —
+  le node reboote et peut mettre ~2 min à ré-annoncer : l'appelant traite 2 en succès provisoire
+  et ré-inspecte ; JAMAIS l'enveloppe `{"error"}` pour ce cas), **1 = échec dur**. Écritures
+  regroupées en **UNE transaction** (`beginSettingsTransaction` →
   `writeConfig` sections modifiées seulement → commit), **rien d'écrit si déjà conforme** (zéro
   reboot). Contraintes Phase 0 (T114 réel) : **retry connexion + backoff** (`connect_with_retry`),
   le node **REBOOTE au commit** → commit **fire-and-forget** (thread daemon + join court) puis
-  reconnexion fraîche pour vérifier (`matches_target`) ; l'iface pré-reboot n'est **jamais**
+  reconnexion fraîche pour vérifier (`matches_target`) avec un **budget patient SÉPARÉ** du
+  connect initial (`RECONNECT_*` : 10 essais / ≥150 s, `REBOOT_WAIT` 120 s — finding hw-test
+  2026-07-11) ; l'iface pré-reboot n'est **jamais**
   fermée et tout `close()` passe par `_close_quietly` (thread + join borné — close() gèle sur
   lien mort). Creds CLI absents = ceux du node conservés (§7.3). Tout injectable
   (factory/sleep/thread) → 100 % testé sans matériel ; `n'appaire PAS` (rôle installateur).

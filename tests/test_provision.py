@@ -296,6 +296,34 @@ def test_apply_verify_failure_exits_1():
     assert code == 1 and out["applied"] is False
 
 
+def test_apply_committed_but_unverified_exit_2():
+    # Le commit part, le node reboote… et ne ré-annonce pas dans le budget de reconnexion
+    # (finding hw-test T114) : exit 2 + champs dédiés, PAS l'enveloppe {"error"} — sinon
+    # l'installateur conclurait à tort à un échec alors que le write est appliqué.
+    args = _args("--apply")
+    node = FakeNode(uplink=False)
+    calls = {"n": 0}
+
+    def factory(address):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return FakeIface(node)  # connexion initiale OK
+        raise TimeoutError("no peripheral")  # le node ne ré-annonce jamais
+
+    slept = []
+    code, out = provision.run(args, interface_factory=factory,
+                              sleep=slept.append, thread_factory=ImmediateThread)
+    assert code == 2
+    assert out["applied"] is None and out["committed"] is True and out["verified"] is False
+    assert out["warning"] == provision.COMMITTED_UNVERIFIED_WARNING
+    assert out["node_id"] == "!534bbea5"  # identité capturée AVANT le reboot
+    assert "error" not in out
+    # budget de reconnexion PATIENT et séparé : 10 tentatives, ≥150 s de sleeps + REBOOT_WAIT ~2 min
+    assert calls["n"] == 1 + provision.RECONNECT_ATTEMPTS
+    assert slept[0] == provision.REBOOT_WAIT == 120.0
+    assert sum(slept[1:]) >= 150
+
+
 def test_apply_commit_never_returns_still_reconnects():
     # Le node reboote PENDANT le commit : l'appel ne rend jamais la main (Phase 0)
     args = _args("--apply")

@@ -18,6 +18,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev]"
+      - run: ruff check src tests
       # Sans broker : le test d'intégration se skippe ; le unitaire vise 100%.
       - run: pytest
 

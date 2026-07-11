@@ -44,7 +44,14 @@ DEFAULT_BROADCAST_SECS = 900
 CONNECT_ATTEMPTS = 4
 CONNECT_DELAY = 3.0  # délai initial entre tentatives (backoff x2)
 CONNECT_MAX_DELAY = 15.0  # plafond du backoff
-REBOOT_WAIT = 10.0  # attente avant reconnexion post-commit (le node reboote)
+# Reconnexion POST-REBOOT : budget PATIENT, séparé du connect initial (contrat §2 amendé,
+# hw-test T114 2026-07-11) — le node met ~2 min à ré-annoncer après le reboot du commit.
+# ≥ ~10 tentatives / ≥ 150 s de wall-clock (ici : 5+10+20+30×6 = 215 s de sleeps).
+REBOOT_WAIT = 120.0  # attente avant la 1re tentative (plancher de ré-annonce observé)
+RECONNECT_ATTEMPTS = 10
+RECONNECT_DELAY = 5.0
+RECONNECT_MAX_DELAY = 30.0
+COMMITTED_UNVERIFIED_WARNING = "commit envoyé, vérification impossible (node pas encore ré-annoncé)"
 COMMIT_JOIN_TIMEOUT = 5.0  # join court du commit fire-and-forget
 CLOSE_JOIN_TIMEOUT = 3.0  # join court du close (jamais bloquant)
 
@@ -273,19 +280,45 @@ def run(
     sleep: Callable[[float], None] = time.sleep,
     thread_factory: Callable[..., Any] = threading.Thread,
 ) -> Tuple[int, Dict[str, Any]]:
-    """Exécute --inspect ou --apply. Renvoie (exit code, JSON du contrat)."""
+    """Exécute --inspect ou --apply. Renvoie (exit code, JSON du contrat).
+
+    Codes de sortie (contrat §2 amendé) : 0 = succès vérifié ; 2 = commité-mais-non-vérifié
+    (la transaction est partie mais le node n'a pas ré-annoncé dans le budget — l'appelant
+    doit traiter ça comme un succès provisoire et ré-inspecter plus tard) ; 1 = échec dur.
+    """
     expected = target_address(args.broker, args.port)
     iface = connect_with_retry(args.mac, factory=interface_factory, sleep=sleep)
     if args.inspect:
         state = read_state(iface)
         _close_quietly(iface, thread_factory)
         return 0, dict(state, **assess(state, expected), applied=False)
+    # Identité capturée AVANT le commit : c'est tout ce qu'on saura encore du node si la
+    # reconnexion post-reboot échoue (cas exit 2).
+    identity = metrics.node_identity(iface.getMyNodeInfo() or {})
     rebooted = apply_target(iface.localNode, args, thread_factory=thread_factory)
     if rebooted:
         # L'interface pré-reboot est morte : on ne la ferme PAS (close() gèlerait),
-        # on attend le reboot puis on rouvre une connexion fraîche pour vérifier.
+        # on attend le reboot puis on rouvre une connexion fraîche pour vérifier —
+        # avec le budget PATIENT (le node peut mettre ~2 min à ré-annoncer).
         sleep(REBOOT_WAIT)
-        iface = connect_with_retry(args.mac, factory=interface_factory, sleep=sleep)
+        try:
+            iface = connect_with_retry(
+                args.mac, factory=interface_factory, attempts=RECONNECT_ATTEMPTS,
+                delay=RECONNECT_DELAY, max_delay=RECONNECT_MAX_DELAY, sleep=sleep,
+            )
+        except ProvisionError as exc:
+            # Commité mais non vérifié ≠ échec : ne PAS renvoyer l'enveloppe {"error"}
+            # (l'installateur conclurait à tort à un onboarding raté alors que le write
+            # est très probablement appliqué). Contrat : exit 2 + champs dédiés.
+            log.warning("commit parti mais vérification impossible : %s", exc)
+            return 2, {
+                "node_id": identity["node_id"],
+                "node_name": identity["node_name"],
+                "applied": None,
+                "committed": True,
+                "verified": False,
+                "warning": COMMITTED_UNVERIFIED_WARNING,
+            }
     state = read_state(iface)
     applied = matches_target(iface.localNode, args)
     _close_quietly(iface, thread_factory)
