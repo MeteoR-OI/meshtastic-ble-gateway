@@ -1,6 +1,6 @@
 [project]
 name = "meshtastic-ble-gateway"
-version = "0.7.0"
+version = "0.8.0"
 description = "Pont BLE → MQTT pour nodes Meshtastic BT-only, à destination de MeshForge"
 readme = "README.md"
 requires-python = ">=3.9"

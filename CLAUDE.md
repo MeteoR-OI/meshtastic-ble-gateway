@@ -200,11 +200,12 @@ Les arguments CLI ne servent qu'en usage manuel/PoC et priment s'ils sont fourni
 - **V0.7** (fait, côté mbg) : exposition de l'**identité du node** (id/longName dans `node_metrics`
   + agrégat voisins) et endpoint **`GET /info`** (version + identité + config) — brique côté
   passerelle de l'**intégration WeeWX** (extension `weewx-mbg` + tuile installer, autres repos).
-- **Épic onboarding, phase gateway** (fait, branche `feat/provision-tool`) : outil
-  **`mbg.provision`** (config MQTT+position du node par BLE, contrat JSON pour l'installateur)
-  + **statut onboarding dans `/info`** (`broker`/`mqtt_proxy_ok`/`map_reporting` via la sonde).
-  Contrats figés : `.agent-bus/CONTRACTS-onboarding.md` (hors repo). Voir `docs/provision.md`.
-- **V0.8** : transports alternatifs (USB-série / WiFi-TCP) si le matériel du node le permet.
+- **V0.8** (fait) : **épic onboarding, phase gateway** — outil **`mbg.provision`** (config
+  MQTT+position du node par BLE, contrat JSON pour l'installateur, sortie dure `os._exit` pour ne
+  jamais geler) + **statut onboarding dans `/info`** (`broker`/`mqtt_proxy_ok`/`map_reporting`
+  via la sonde). Contrats figés : `.agent-bus/CONTRACTS-onboarding.md` (hors repo). Voir
+  `docs/provision.md`.
+- **V0.9** : transports alternatifs (USB-série / WiFi-TCP) si le matériel du node le permet.
 
 ## Conventions
 

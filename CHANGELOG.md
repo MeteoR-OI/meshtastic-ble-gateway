@@ -4,7 +4,7 @@ Toutes les évolutions notables. Format inspiré de [Keep a Changelog](https://k
 versionnage [SemVer](https://semver.org/lang/fr/). Notes et artefacts détaillés :
 [Releases GitHub](https://github.com/MeteoR-OI/meshtastic-ble-gateway/releases).
 
-## [Non publié]
+## [0.8.0] — 2026-07-11
 ### Ajouté
 - **Outil de provisionnement** `python -m mbg.provision` (`--inspect`/`--apply`) : lit/écrit la
   config MQTT + position du node par BLE (une seule transaction, retry BLE, gestion du reboot
