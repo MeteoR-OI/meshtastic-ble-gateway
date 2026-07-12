@@ -64,7 +64,34 @@ def test_latest_neighbors_aggregate(tmp_path):
         {"node_id": "!aa", "snr": 5.0, "rssi": -100, "last_heard": 1},
         {"node_id": "!bb", "snr": 8.5, "rssi": -90, "last_heard": 2},
     ])
-    assert store.latest()["neighbors"] == {"count": 2, "best_snr": 8.5}  # dernier batch : count + max snr
+    nb = store.latest()["neighbors"]
+    assert nb["count"] == 2 and nb["best_snr"] == 8.5  # dernier batch : count + max snr
+    assert nb["max_distance_km"] is None  # aucun relevé node_metrics
+    assert nb["distinct_1h"] == 2 and nb["distinct_24h"] == 2 and nb["distinct_total"] == 2
+
+
+def test_latest_neighbors_max_distance_from_last_node_row(tmp_path):
+    store = MetricsStore(str(tmp_path / "m.db"), clock=lambda: 100.0)
+    store.record_node({"battery_level": 80, "max_distance_km": 12.4})
+    store.record_neighbors([{"node_id": "!aa", "snr": 5.0}])
+    nb = store.latest()["neighbors"]
+    assert nb["max_distance_km"] == 12.4  # porté par le dernier node_metrics
+    assert store.latest()["node"]["max_distance_km"] == 12.4  # aussi lisible sur la ligne node
+
+
+def test_latest_distinct_windows(tmp_path):
+    now = 1_000_000.0
+    ticks = iter([now, now - 1800, now - 40000, now - 200000, now])
+    #             batch récent  dans 1h    dans 24h     hors 24h      clock de latest()
+    store = MetricsStore(str(tmp_path / "m.db"), clock=lambda: next(ticks))
+    store.record_neighbors([{"node_id": "!recent"}])           # ts=now (le "dernier batch")
+    store.record_neighbors([{"node_id": "!h1"}])               # ts dans 1h
+    store.record_neighbors([{"node_id": "!h24"}])              # ts dans 24h (hors 1h)
+    store.record_neighbors([{"node_id": "!old"}, {"node_id": "!recent"}])  # ts hors 24h (+ doublon)
+    nb = store.latest()["neighbors"]  # clock=now
+    assert nb["distinct_1h"] == 2      # !recent + !h1 (ts > now-3600)
+    assert nb["distinct_24h"] == 3     # + !h24 (ts > now-86400)
+    assert nb["distinct_total"] == 4   # + !old ; !recent (2 occurrences) dédoublonné
 
 
 def test_history_and_since(tmp_path):

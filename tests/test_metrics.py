@@ -69,9 +69,10 @@ def test_node_identity_fallbacks():
 
 def test_neighbors_filters_direct_and_self():
     nodes = {
-        1: {"hopsAway": 0, "user": {"id": "!001"}, "snr": 6.0, "rssi": -90, "lastHeard": 10},
+        1: {"hopsAway": 0, "user": {"id": "!001"}, "snr": 6.0, "rssi": -90, "lastHeard": 10,
+            "position": {"latitude": -21.0, "longitude": 55.5}},
         2: {"hopsAway": 2, "user": {"id": "!002"}},  # via relais -> exclu
-        3: {"hopsAway": 0},  # 0-hop sans user -> id dérivé du num
+        3: {"hopsAway": 0},  # 0-hop sans user ni position -> id dérivé, lat/lon None
         9: {"hopsAway": 0},  # self -> exclu
     }
     out = metrics.neighbors(nodes, my_num=9)
@@ -79,3 +80,37 @@ def test_neighbors_filters_direct_and_self():
     assert ids == {"!001", "!00000003"}
     direct = next(n for n in out if n["node_id"] == "!001")
     assert direct["snr"] == 6.0 and direct["rssi"] == -90 and direct["last_heard"] == 10
+    assert direct["lat"] == -21.0 and direct["lon"] == 55.5  # position lue localement
+    without = next(n for n in out if n["node_id"] == "!00000003")
+    assert without["lat"] is None and without["lon"] is None
+
+
+def test_haversine_known_distance():
+    # Paris ↔ Londres ≈ 344 km (référence géodésique).
+    d = metrics._haversine_km(48.8566, 2.3522, 51.5074, -0.1278)
+    assert abs(d - 344) < 2
+
+
+def test_max_distance_km_picks_farthest():
+    gateway = {"lat": -21.0, "lon": 55.5}
+    neighbors = [
+        {"lat": -21.05, "lon": 55.5},   # ~5,6 km
+        {"lat": -21.0, "lon": 55.5},    # 0 km (même point)
+        {"lat": None, "lon": None},     # sans position -> ignoré
+    ]
+    d = metrics.max_distance_km(gateway, neighbors)
+    assert d == round(metrics._haversine_km(-21.0, 55.5, -21.05, 55.5), 1)
+    assert d > 5.0  # le plus lointain, pas le plus proche
+
+
+def test_max_distance_km_null_when_gateway_has_no_position():
+    assert metrics.max_distance_km({"lat": None, "lon": 55.5},
+                                   [{"lat": -21.0, "lon": 55.5}]) is None
+    assert metrics.max_distance_km({"lat": -21.0, "lon": None},
+                                   [{"lat": -21.0, "lon": 55.5}]) is None
+
+
+def test_max_distance_km_null_when_no_neighbor_has_position():
+    gateway = {"lat": -21.0, "lon": 55.5}
+    assert metrics.max_distance_km(gateway, [{"lat": None, "lon": None}]) is None
+    assert metrics.max_distance_km(gateway, []) is None

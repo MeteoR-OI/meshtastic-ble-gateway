@@ -4,6 +4,16 @@ Toutes les évolutions notables. Format inspiré de [Keep a Changelog](https://k
 versionnage [SemVer](https://semver.org/lang/fr/). Notes et artefacts détaillés :
 [Releases GitHub](https://github.com/MeteoR-OI/meshtastic-ble-gateway/releases).
 
+## [0.8.1] — 2026-07-12
+### Ajouté
+- **Portée & voisinage** dans `GET /metrics` (bloc `neighbors`) — calcul/SQL sur des données
+  DÉJÀ remontées, **aucune nouvelle op BLE** :
+  - `max_distance_km` : distance (haversine, km arrondi 0,1) du voisin 0-hop le plus lointain dont
+    on connaît la position ; calculée par la sonde, persistée (colonne `node_metrics.max_distance_km`,
+    migration auto) ; `null` si la passerelle ou tous les voisins n'ont pas de position.
+  - `distinct_1h` / `distinct_24h` / `distinct_total` : voisins distincts (`COUNT(DISTINCT node_id)`
+    sur la table `neighbors`) sur 1 h / 24 h / tout l'historique.
+
 ## [0.8.0] — 2026-07-11
 ### Ajouté
 - **Outil de provisionnement** `python -m mbg.provision` (`--inspect`/`--apply`) : lit/écrit la

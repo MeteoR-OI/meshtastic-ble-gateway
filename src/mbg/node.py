@@ -126,10 +126,15 @@ class MeshtasticNodeLink:
         mqtt = metrics.mqtt_status(getattr(module_config, "mqtt", None))
         node = dict(metrics.node_metrics(info), **metrics.node_identity(info), **mqtt)
         nodes_by_num = getattr(self._iface, "nodesByNum", None) or {}
+        pos = metrics.position(info)
+        nbrs = metrics.neighbors(nodes_by_num, info.get("num"))
+        # Portée : distance du voisin 0-hop le plus lointain (haversine passerelle↔voisins,
+        # calcul LOCAL). Stockée sur node_metrics (pattern des colonnes mqtt_*).
+        node["max_distance_km"] = metrics.max_distance_km(pos, nbrs)
         return {
             "node": node,
-            "position": metrics.position(info),
-            "neighbors": metrics.neighbors(nodes_by_num, info.get("num")),
+            "position": pos,
+            "neighbors": nbrs,
         }
 
     def send(self, command: dict) -> dict:

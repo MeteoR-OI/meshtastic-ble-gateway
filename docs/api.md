@@ -34,8 +34,23 @@ BASE=http://<hote-passerelle>:8080
 
 `GET /info` renvoie la **version** de la passerelle + l'**identité du node** (id + nom humain, dès
 qu'un relevé a été fait) + quelques réglages — utile pour la découverte (ex. tuile d'un installateur).
-`GET /metrics` inclut désormais `node.node_id`/`node.node_name` et un agrégat
-`neighbors: {count, best_snr}` ([monitoring.md](monitoring.md)).
+`GET /metrics` inclut `node.node_id`/`node.node_name` et un agrégat `neighbors`
+([monitoring.md](monitoring.md)) — **portée & voisinage** (V0.8.1), calculé sur des données déjà
+remontées (aucune op BLE) :
+
+```json
+"neighbors": {
+  "count": 7, "best_snr": 7.25,
+  "max_distance_km": 12.4,   // haversine passerelle↔voisin le plus lointain (km, 0,1) ; null si aucune position
+  "distinct_1h": 5,          // voisins distincts (COUNT DISTINCT node_id) entendus sur 1 h
+  "distinct_24h": 9,         // idem sur 24 h
+  "distinct_total": 23       // idem sur tout l'historique
+}
+```
+
+`max_distance_km` provient du dernier relevé de la sonde (position passerelle `node_metrics.lat/lon`
+↔ position des voisins lue localement dans la NodeDB) ; `null` si la passerelle ou tous les voisins
+n'ont pas de position. Le bloc `neighbors` vaut `null` tant qu'aucun voisin n'a été relevé.
 
 `GET /info` expose aussi le **statut d'onboarding** du node (consommé par l'intégration WeeWX) :
 `broker` (l'`address` MQTT configurée sur le node), `mqtt_proxy_ok` (module MQTT activé **et**

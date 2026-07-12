@@ -87,8 +87,11 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
   `mqtt_broker`/`mqtt_proxy_ok`/`mqtt_map_reporting` (lu de `localNode.moduleConfig.mqtt` par
   `metrics.mqtt_status`, sans I/O radio ; `mqtt_proxy_ok` = `enabled` ET `proxy_to_client_enabled` ;
   colonnes ajoutées par **migration auto** `ALTER TABLE` à l'init — les bases de prod pré-existantes
-  survivent) ; `store.latest()` ajoute
-  un agrégat `neighbors: {count, best_snr}` (dernier batch) — exposés par `/metrics` et `/info`. Le **worker**
+  survivent — dont `max_distance_km`, V0.8.1) ; `store.latest()` ajoute
+  un agrégat `neighbors: {count, best_snr, max_distance_km, distinct_1h/24h/total}` — `max_distance_km`
+  vient du dernier relevé (haversine passerelle↔voisins, `metrics.max_distance_km`, calcul LOCAL) et
+  les `distinct_*` sont des `COUNT(DISTINCT node_id)` sur la table `neighbors` (fenêtres via l'horloge
+  du store). Exposé par `/metrics` — exclut le lat/lon transitoire des voisins (jamais persisté). Le **worker**
   écrit node_metrics/neighbors (monitor injecté dans `run_one_session`) : **un relevé tôt
   dans chaque session** (dès le lien établi) **puis** à la cadence `monitor_interval` — sinon,
   lien instable oblige (sessions < `monitor_interval`), le tic périodique ne tomberait jamais
@@ -205,6 +208,10 @@ Les arguments CLI ne servent qu'en usage manuel/PoC et priment s'ils sont fourni
   jamais geler) + **statut onboarding dans `/info`** (`broker`/`mqtt_proxy_ok`/`map_reporting`
   via la sonde). Contrats figés : `.agent-bus/CONTRACTS-onboarding.md` (hors repo). Voir
   `docs/provision.md`.
+- **V0.8.1** (fait) : **portée & voisinage** dans `/metrics.neighbors` — `max_distance_km`
+  (haversine passerelle↔voisins, colonne `node_metrics.max_distance_km`) + `distinct_1h/24h/total`
+  (voisins distincts `COUNT(DISTINCT node_id)`). **Aucune nouvelle op BLE** (calcul/SQL sur le cache
+  NodeDB + table `neighbors`). Contrat : `.agent-bus/CONTRACTS-portee.md §1`.
 - **V0.9** : transports alternatifs (USB-série / WiFi-TCP) si le matériel du node le permet.
 
 ## Conventions

@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS node_metrics (
   ts REAL, battery_level INTEGER, voltage REAL, channel_util REAL,
   air_util_tx REAL, uptime INTEGER, lat REAL, lon REAL, altitude INTEGER,
   node_id TEXT, node_name TEXT,
-  mqtt_broker TEXT, mqtt_proxy_ok INTEGER, mqtt_map_reporting INTEGER
+  mqtt_broker TEXT, mqtt_proxy_ok INTEGER, mqtt_map_reporting INTEGER,
+  max_distance_km REAL
 );
 CREATE TABLE IF NOT EXISTS neighbors (
   ts REAL, node_id TEXT, snr REAL, rssi INTEGER, last_heard INTEGER
@@ -37,6 +38,7 @@ _MIGRATIONS = (
     ("node_metrics", "mqtt_broker", "TEXT"),
     ("node_metrics", "mqtt_proxy_ok", "INTEGER"),
     ("node_metrics", "mqtt_map_reporting", "INTEGER"),
+    ("node_metrics", "max_distance_km", "REAL"),
 )
 
 
@@ -74,14 +76,15 @@ class MetricsStore:
             conn.execute(
                 "INSERT INTO node_metrics (ts,battery_level,voltage,channel_util,air_util_tx,"
                 "uptime,lat,lon,altitude,node_id,node_name,"
-                "mqtt_broker,mqtt_proxy_ok,mqtt_map_reporting) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "mqtt_broker,mqtt_proxy_ok,mqtt_map_reporting,max_distance_km) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     self._clock(), metrics.get("battery_level"), metrics.get("voltage"),
                     metrics.get("channel_util"), metrics.get("air_util_tx"), metrics.get("uptime"),
                     pos.get("lat"), pos.get("lon"), pos.get("altitude"),
                     metrics.get("node_id"), metrics.get("node_name"),
                     metrics.get("mqtt_broker"), metrics.get("mqtt_proxy_ok"),
-                    metrics.get("mqtt_map_reporting"),
+                    metrics.get("mqtt_map_reporting"), metrics.get("max_distance_km"),
                 ),
             )
 
@@ -98,6 +101,7 @@ class MetricsStore:
             conn.execute("INSERT INTO link_quality (ts,reconnects) VALUES (?,?)", (self._clock(), reconnects))
 
     def latest(self) -> Dict[str, Any]:
+        now = self._clock()
         with self._conn() as conn:
             node = conn.execute("SELECT * FROM node_metrics ORDER BY ts DESC LIMIT 1").fetchone()
             link = conn.execute("SELECT * FROM link_quality ORDER BY ts DESC LIMIT 1").fetchone()
@@ -105,7 +109,26 @@ class MetricsStore:
                 "SELECT count(*) AS count, max(snr) AS best_snr FROM neighbors "
                 "WHERE ts = (SELECT max(ts) FROM neighbors)"
             ).fetchone()
-        neighbors = {"count": nb["count"], "best_snr": nb["best_snr"]} if nb["count"] else None
+            # Voisins DISTINCTS entendus par fenêtre (dédoublonnés par node_id sur tout
+            # l'historique de la table neighbors).
+            distinct = conn.execute(
+                "SELECT "
+                "count(DISTINCT CASE WHEN ts > ? THEN node_id END) AS d1h,"
+                "count(DISTINCT CASE WHEN ts > ? THEN node_id END) AS d24h,"
+                "count(DISTINCT node_id) AS dtot FROM neighbors",
+                (now - 3600, now - 86400),
+            ).fetchone()
+        neighbors = None
+        if nb["count"]:
+            neighbors = {
+                "count": nb["count"],
+                "best_snr": nb["best_snr"],
+                # max_distance_km : porté par le dernier relevé node_metrics (calculé sonde).
+                "max_distance_km": node["max_distance_km"] if node else None,
+                "distinct_1h": distinct["d1h"],
+                "distinct_24h": distinct["d24h"],
+                "distinct_total": distinct["dtot"],
+            }
         return {
             "node": dict(node) if node else None,
             "link": dict(link) if link else None,

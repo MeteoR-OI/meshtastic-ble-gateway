@@ -179,6 +179,31 @@ def test_read_metrics_aggregates():
     assert data["neighbors"][0]["node_id"] == "!001"
     # pas de localNode sur cette iface -> statut MQTT inconnu (fail-soft)
     assert data["node"]["mqtt_broker"] is None and data["node"]["mqtt_proxy_ok"] is None
+    # passerelle sans longitude + voisin sans position -> pas de distance
+    assert data["node"]["max_distance_km"] is None
+
+
+def test_read_metrics_computes_max_distance():
+    iface = SimpleNamespace(
+        getMyNodeInfo=lambda: {
+            "num": 9,
+            "position": {"latitude": -21.0, "longitude": 55.5},
+            "user": {"id": "!009"},
+        },
+        nodesByNum={
+            1: {"hopsAway": 0, "user": {"id": "!001"}, "position": {"latitude": -21.1, "longitude": 55.5}},
+            2: {"hopsAway": 0, "user": {"id": "!002"}},  # sans position -> ignoré
+        },
+    )
+    link = MeshtasticNodeLink(
+        "addr", lambda m: None,
+        interface_factory=lambda a: iface,
+        subscribe=lambda h, t: None,
+        unsubscribe=lambda h, t: None,
+    )
+    link.open()
+    dist = link.read_metrics()["node"]["max_distance_km"]
+    assert dist is not None and dist > 10  # ~11 km entre -21.0 et -21.1 de latitude
 
 
 def test_read_metrics_includes_mqtt_status():
