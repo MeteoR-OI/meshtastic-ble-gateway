@@ -75,7 +75,7 @@ def test_neighbors_filters_direct_and_self():
         3: {"hopsAway": 0},  # 0-hop sans user ni position -> id dérivé, lat/lon None
         9: {"hopsAway": 0},  # self -> exclu
     }
-    out = metrics.neighbors(nodes, my_num=9)
+    out = metrics.neighbors(nodes, my_num=9)  # sans filtre temporel
     ids = {n["node_id"] for n in out}
     assert ids == {"!001", "!00000003"}
     direct = next(n for n in out if n["node_id"] == "!001")
@@ -83,6 +83,31 @@ def test_neighbors_filters_direct_and_self():
     assert direct["lat"] == -21.0 and direct["lon"] == 55.5  # position lue localement
     without = next(n for n in out if n["node_id"] == "!00000003")
     assert without["lat"] is None and without["lon"] is None
+
+
+def test_resolve_active_window():
+    # override>0 prime ; sinon max(monitor_interval, plancher 3600)
+    assert metrics.resolve_active_window(300, override=0) == 3600.0  # échantillonnage rapide -> plancher
+    assert metrics.resolve_active_window(7200, override=0) == 7200.0  # sonde lente -> couvre 1 cycle
+    assert metrics.resolve_active_window(300, override=900) == 900.0  # override explicite
+
+
+def test_neighbors_active_filter():
+    nodes = {
+        1: {"hopsAway": 0, "user": {"id": "!frais"}, "lastHeard": 950},   # récent -> gardé
+        2: {"hopsAway": 0, "user": {"id": "!perime"}, "lastHeard": 100},  # périmé -> exclu
+        3: {"hopsAway": 0, "user": {"id": "!sansts"}},                    # pas de lastHeard -> exclu
+    }
+    # now=1000, fenêtre=100 -> cutoff=900 : seul !frais (950>=900) passe
+    out = metrics.neighbors(nodes, my_num=9, now=1000.0, active_window=100.0)
+    assert {n["node_id"] for n in out} == {"!frais"}
+
+
+def test_neighbors_active_filter_needs_both_params():
+    nodes = {1: {"hopsAway": 0, "user": {"id": "!x"}, "lastHeard": 1}}  # très vieux
+    # un seul des deux paramètres -> PAS de filtre (compat), le node périmé reste
+    assert metrics.neighbors(nodes, my_num=9, now=1e12)[0]["node_id"] == "!x"
+    assert metrics.neighbors(nodes, my_num=9, active_window=1.0)[0]["node_id"] == "!x"
 
 
 def test_haversine_known_distance():

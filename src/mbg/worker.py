@@ -13,8 +13,10 @@ import logging
 import os
 import queue
 import signal
+import time
 from typing import Callable
 
+from . import metrics as metrics_mod
 from .config import Config
 from .link_tuner import tune_link
 from .mqtt_publisher import PahoPublisher
@@ -56,6 +58,7 @@ def _worker_body(
     nodelink_cls=MeshtasticNodeLink,
     store_cls=MetricsStore,
     tuner: Callable[[Config], bool] = tune_link,
+    clock: Callable[[], float] = time.time,
 ) -> int:
     """Logique testable du worker (sans os._exit / signaux)."""
 
@@ -74,11 +77,17 @@ def _worker_body(
     monitor = None
     if config.monitor_interval > 0:
         store = store_cls(config.db_path)
+        # Fenêtre "voisin actif" (V0.8.2) : constante par session (dépend de la config).
+        active_window = metrics_mod.resolve_active_window(
+            config.monitor_interval, config.neighbor_active_secs
+        )
 
         def monitor(link):
             if config.force_telemetry:
                 link.send({"type": "telemetry"})  # mesure fraîche (write BLE, peut geler->SIGKILL)
-            data = link.read_metrics()
+            # `now` = horloge murale (comparée au lastHeard unix des voisins) pour ne relever
+            # que les voisins ACTIFS ; le filtre s'applique à l'extraction (cf. read_metrics).
+            data = link.read_metrics(now=clock(), active_window=active_window)
             store.record_node(data["node"], data["position"])
             store.record_neighbors(data["neighbors"])
 

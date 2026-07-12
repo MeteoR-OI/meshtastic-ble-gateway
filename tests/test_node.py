@@ -206,6 +206,35 @@ def test_read_metrics_computes_max_distance():
     assert dist is not None and dist > 10  # ~11 km entre -21.0 et -21.1 de latitude
 
 
+def test_read_metrics_active_filter_excludes_stale_neighbor():
+    # Le voisin périmé (position lointaine, plus entendu) ne doit compter NI dans neighbors
+    # NI dans max_distance quand le filtre d'activité est passé (V0.8.2).
+    iface = SimpleNamespace(
+        getMyNodeInfo=lambda: {
+            "num": 9,
+            "position": {"latitude": -21.0, "longitude": 55.5},
+            "user": {"id": "!009"},
+        },
+        nodesByNum={
+            1: {"hopsAway": 0, "user": {"id": "!actif"}, "lastHeard": 990,
+                "position": {"latitude": -21.02, "longitude": 55.5}},
+            2: {"hopsAway": 0, "user": {"id": "!perime"}, "lastHeard": 10,
+                "position": {"latitude": -30.0, "longitude": 55.5}},  # loin + vieux
+        },
+    )
+    link = MeshtasticNodeLink(
+        "addr", lambda m: None,
+        interface_factory=lambda a: iface,
+        subscribe=lambda h, t: None,
+        unsubscribe=lambda h, t: None,
+    )
+    link.open()
+    data = link.read_metrics(now=1000.0, active_window=100.0)  # cutoff=900
+    assert [n["node_id"] for n in data["neighbors"]] == ["!actif"]
+    # max_distance ne reflète que l'actif (~2 km), pas le périmé à ~1000 km
+    assert data["node"]["max_distance_km"] < 10
+
+
 def test_read_metrics_includes_mqtt_status():
     iface = SimpleNamespace(
         getMyNodeInfo=lambda: {"user": {"id": "!009"}},

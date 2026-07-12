@@ -34,6 +34,9 @@ class Config:
     db_path: str = "metrics.db"  # base SQLite (relative au WorkingDirectory du service)
     monitor_interval: float = 300.0  # cadence de relevé des métriques node (s ; 0 = off)
     force_telemetry: bool = False  # envoyer sendTelemetry avant le relevé (mesure fraîche)
+    # Fenêtre "voisin actif" (V0.8.2) : un voisin 0-hop ne compte que si entendu depuis
+    # `now - W`. 0 = auto = max(monitor_interval, NEIGHBOR_ACTIVE_FLOOR) ; sinon override en s.
+    neighbor_active_secs: float = 0.0
     dump_dir: Optional[str] = None  # répertoire d'export CSV (None = pas d'export)
     dump_interval: float = 3600.0  # cadence d'export CSV + purge (s)
     retention_days: float = 0.0  # purge au-delà de N jours (0 = pas de purge)
@@ -70,6 +73,7 @@ class Config:
             db_path=src.get("MBG_DB_PATH", "metrics.db"),
             monitor_interval=float(src.get("MBG_MONITOR_INTERVAL", "300")),
             force_telemetry=src.get("MBG_MONITOR_FORCE_TELEMETRY", "").lower() in ("1", "true", "yes"),
+            neighbor_active_secs=float(src.get("MBG_NEIGHBOR_ACTIVE_SECS", "0")),
             dump_dir=src.get("MBG_DUMP_DIR") or None,
             dump_interval=float(src.get("MBG_DUMP_INTERVAL", "3600")),
             retention_days=float(src.get("MBG_RETENTION_DAYS", "0")),

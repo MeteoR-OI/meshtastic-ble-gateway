@@ -91,7 +91,13 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
   un agrégat `neighbors: {count, best_snr, max_distance_km, distinct_1h/24h/total}` — `max_distance_km`
   vient du dernier relevé (haversine passerelle↔voisins, `metrics.max_distance_km`, calcul LOCAL) et
   les `distinct_*` sont des `COUNT(DISTINCT node_id)` sur la table `neighbors` (fenêtres via l'horloge
-  du store). Exposé par `/metrics` — exclut le lat/lon transitoire des voisins (jamais persisté). Le **worker**
+  du store). Exposé par `/metrics` — exclut le lat/lon transitoire des voisins (jamais persisté).
+  **Voisins actifs (V0.8.2)** : `metrics.neighbors` filtre À L'EXTRACTION sur `last_heard` récent
+  (`now - max(monitor_interval, 3600 s)`, override `MBG_NEIGHBOR_ACTIVE_SECS`) — sinon la NodeDB
+  accumule des nodes périmés dont la position gonfle `max_distance_km` ; le filtre se propage donc à
+  `count`/`best_snr`/`max_distance` ET aux voisins stockés (donc `distinct_*`). Voisin sans
+  `last_heard` = exclu. Le worker calcule la fenêtre (constante par session) + `now` (horloge injectée)
+  et les passe à `read_metrics`. Le **worker**
   écrit node_metrics/neighbors (monitor injecté dans `run_one_session`) : **un relevé tôt
   dans chaque session** (dès le lien établi) **puis** à la cadence `monitor_interval` — sinon,
   lien instable oblige (sessions < `monitor_interval`), le tic périodique ne tomberait jamais
@@ -212,6 +218,10 @@ Les arguments CLI ne servent qu'en usage manuel/PoC et priment s'ils sont fourni
   (haversine passerelle↔voisins, colonne `node_metrics.max_distance_km`) + `distinct_1h/24h/total`
   (voisins distincts `COUNT(DISTINCT node_id)`). **Aucune nouvelle op BLE** (calcul/SQL sur le cache
   NodeDB + table `neighbors`). Contrat : `.agent-bus/CONTRACTS-portee.md §1`.
+- **V0.8.2** (fait) : **voisins actifs** — `metrics.neighbors` filtre `last_heard` récent à
+  l'extraction (fenêtre `max(monitor_interval, 3600 s)`, `MBG_NEIGHBOR_ACTIVE_SECS`) → `count`/
+  `best_snr`/`max_distance_km`/`distinct_*` n'incluent plus les nodes périmés (position obsolète
+  qui gonflait la distance). Contrat : `.agent-bus/CONTRACTS-portee.md` (amendé).
 - **V0.9** : transports alternatifs (USB-série / WiFi-TCP) si le matériel du node le permet.
 
 ## Conventions

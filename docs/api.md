@@ -52,6 +52,14 @@ remontées (aucune op BLE) :
 ↔ position des voisins lue localement dans la NodeDB) ; `null` si la passerelle ou tous les voisins
 n'ont pas de position. Le bloc `neighbors` vaut `null` tant qu'aucun voisin n'a été relevé.
 
+**Voisins actifs** (V0.8.2) : toutes ces métriques ne comptent que les voisins **entendus
+récemment** — la NodeDB accumule des nodes vus il y a longtemps dont la position périmée
+gonflerait `max_distance_km`. Un voisin est « actif » s'il a été entendu depuis
+`max(MBG_MONITOR_INTERVAL, 3600 s)` (surchargeable par `MBG_NEIGHBOR_ACTIVE_SECS`). Le filtre
+s'applique à l'extraction : il vaut pour `count`/`best_snr`/`max_distance_km` **et** pour les
+voisins persistés (donc `distinct_1h/24h/total`). Les snapshots enregistrés avant la V0.8.2
+peuvent encore peupler `distinct_24h/total` jusqu'à ce qu'ils vieillissent.
+
 `GET /info` expose aussi le **statut d'onboarding** du node (consommé par l'intégration WeeWX) :
 `broker` (l'`address` MQTT configurée sur le node), `mqtt_proxy_ok` (module MQTT activé **et**
 proxy client activé — la paire qui fait remonter le trafic via la passerelle) et `map_reporting`

@@ -92,11 +92,13 @@ class FakeStore:
 class MonLink:
     def __init__(self):
         self.sent = []
+        self.read_kwargs = None
 
     def send(self, command):
         self.sent.append(command)
 
-    def read_metrics(self):
+    def read_metrics(self, *, now=None, active_window=None):
+        self.read_kwargs = {"now": now, "active_window": active_window}
         return {"node": {"battery_level": 80}, "position": {"lat": 1}, "neighbors": [{"node_id": "!x"}]}
 
 
@@ -115,10 +117,13 @@ def test_worker_body_monitoring_records():
         session=_session_calling_monitor(link),
         publisher_cls=FakePub, nodelink_cls=FakeLink,
         store_cls=lambda p: stores.append(FakeStore(p)) or stores[-1],
+        clock=lambda: 1000.0,
     )
     assert stores[0].nodes == [({"battery_level": 80}, {"lat": 1})]
     assert stores[0].neigh == [[{"node_id": "!x"}]]
     assert link.sent == []  # force_telemetry False
+    # filtre "voisin actif" passé à l'extraction : now=horloge, fenêtre=max(monitor_interval, plancher 3600)
+    assert link.read_kwargs == {"now": 1000.0, "active_window": 3600.0}
 
 
 def test_worker_body_monitoring_force_telemetry():

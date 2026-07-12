@@ -4,6 +4,18 @@ Toutes les évolutions notables. Format inspiré de [Keep a Changelog](https://k
 versionnage [SemVer](https://semver.org/lang/fr/). Notes et artefacts détaillés :
 [Releases GitHub](https://github.com/MeteoR-OI/meshtastic-ble-gateway/releases).
 
+## [0.8.2] — 2026-07-12
+### Corrigé
+- **Voisins actifs** : les métriques de voisinage (`count`, `best_snr`, `max_distance_km`,
+  `distinct_*`) ne comptaient QUE le 0-hop, mais balayaient toute la NodeDB — y compris des nodes
+  entendus il y a longtemps, dont la **position périmée gonflait `max_distance_km`**. `metrics.neighbors()`
+  filtre désormais À L'EXTRACTION sur `last_heard` récent (voisins **actifs**) : le filtre se propage
+  à `count`/`best_snr`, aux voisins **stockés** (donc `distinct_1h/24h/total`) et à `max_distance_km`.
+  Fenêtre = `max(MBG_MONITOR_INTERVAL, 3600 s)`, surchargeable par **`MBG_NEIGHBOR_ACTIVE_SECS`**.
+  Un voisin sans `last_heard` est exclu (fraîcheur non prouvable). Note : les snapshots déjà stockés
+  avant ce correctif (avec nodes périmés) restent dans la table `neighbors` → `distinct_24h/total`
+  peut inclure de l'historique jusqu'à ce qu'il vieillisse.
+
 ## [0.8.1] — 2026-07-12
 ### Ajouté
 - **Portée & voisinage** dans `GET /metrics` (bloc `neighbors`) — calcul/SQL sur des données

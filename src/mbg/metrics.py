@@ -17,6 +17,23 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, List, Optional
 
+# Plancher de la fenêtre "voisin actif" (V0.8.2). Découplé de la cadence d'ÉMISSION du node
+# (position_broadcast défaut 900 s) qu'on ne connaît pas : 1 h tolère plusieurs diffusions
+# manquées tout en excluant le vrai périmé (entendu il y a des heures/jours).
+NEIGHBOR_ACTIVE_FLOOR = 3600.0
+
+
+def resolve_active_window(monitor_interval: float, override: float = 0.0) -> float:
+    """Fenêtre 'actif' effective (s). `override>0` prime ; sinon max(monitor_interval, plancher).
+
+    Borne basse = `monitor_interval` pour qu'un échantillonnage lent (paliers batterie) couvre
+    au moins un cycle de sonde ; plancher = `NEIGHBOR_ACTIVE_FLOOR` pour qu'un échantillonnage
+    rapide (défaut 300 s) ne fasse pas flapper les voisins à diffusion peu fréquente.
+    """
+    if override > 0:
+        return override
+    return max(monitor_interval, NEIGHBOR_ACTIVE_FLOOR)
+
 
 def node_metrics(info: Dict[str, Any]) -> Dict[str, Any]:
     """Device metrics depuis le dict getMyNodeInfo()."""
@@ -61,19 +78,36 @@ def position(info: Dict[str, Any]) -> Dict[str, Any]:
     return {"lat": pos.get("latitude"), "lon": pos.get("longitude"), "altitude": pos.get("altitude")}
 
 
-def neighbors(nodes_by_num: Dict[int, Any], my_num: Optional[int]) -> List[Dict[str, Any]]:
-    """Voisins directs (0-hop) entendus, avec SNR/RSSI + position (si connue).
+def neighbors(
+    nodes_by_num: Dict[int, Any],
+    my_num: Optional[int],
+    *,
+    now: Optional[float] = None,
+    active_window: Optional[float] = None,
+) -> List[Dict[str, Any]]:
+    """Voisins directs (0-hop) **actifs**, avec SNR/RSSI + position (si connue).
 
     `lat`/`lon` sont lus LOCALEMENT dans le dict NodeDB déjà en main (aucune op BLE) ;
     ils servent au calcul de `max_distance_km`. None si le voisin n'a jamais diffusé
     sa position.
+
+    Filtre d'ACTIVITÉ (V0.8.2) : si `now` ET `active_window` sont fournis, on ne garde que
+    les voisins entendus depuis `now - active_window` — la NodeDB accumule des nodes entendus
+    il y a longtemps dont la position PÉRIMÉE gonflerait `max_distance`. Un voisin sans
+    `lastHeard` ne peut pas prouver sa fraîcheur → exclu quand le filtre est actif. Sans les
+    deux paramètres : pas de filtre temporel (compat).
     """
+    filtering = now is not None and active_window is not None
+    cutoff = (now - active_window) if filtering else None
     out: List[Dict[str, Any]] = []
     for num, node in (nodes_by_num or {}).items():
         if num == my_num:
             continue
         if node.get("hopsAway") != 0:  # 0-hop = portée radio directe
             continue
+        last_heard = node.get("lastHeard")
+        if filtering and (last_heard is None or last_heard < cutoff):
+            continue  # périmé (ou fraîcheur inconnue) -> pas un voisin actif
         user = node.get("user") or {}
         pos = node.get("position") or {}
         out.append(
@@ -81,7 +115,7 @@ def neighbors(nodes_by_num: Dict[int, Any], my_num: Optional[int]) -> List[Dict[
                 "node_id": user.get("id") or ("!%08x" % (num & 0xFFFFFFFF)),
                 "snr": node.get("snr"),
                 "rssi": node.get("rssi"),
-                "last_heard": node.get("lastHeard"),
+                "last_heard": last_heard,
                 "lat": pos.get("latitude"),
                 "lon": pos.get("longitude"),
             }

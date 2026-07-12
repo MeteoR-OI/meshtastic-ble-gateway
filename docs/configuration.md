@@ -49,6 +49,7 @@ Détails : [api.md](api.md).
 | `MBG_DB_PATH` | `metrics.db` | base SQLite (relative au `WorkingDirectory`) |
 | `MBG_MONITOR_INTERVAL` | `300` | cadence de relevé des métriques node (s ; `0` = off). ⚠️ **ignoré si `MBG_BATTERY_TIERS` est actif** → la cadence suit alors le palier (15/30/60 min) |
 | `MBG_MONITOR_FORCE_TELEMETRY` | – | `true` = `sendTelemetry` avant chaque relevé (mesure fraîche, coûte de l'airtime) |
+| `MBG_NEIGHBOR_ACTIVE_SECS` | `0` | fenêtre « voisin actif » (s) : un voisin ne compte dans `/metrics.neighbors` que s'il a été entendu depuis moins longtemps. `0` = auto = `max(MBG_MONITOR_INTERVAL, 3600)` |
 | `MBG_DUMP_DIR` | – | répertoire d'export CSV (vide = pas d'export) |
 | `MBG_DUMP_INTERVAL` | `3600` | cadence export CSV + purge (s) |
 | `MBG_RETENTION_DAYS` | `0` | purge des données au-delà de N jours (`0` = pas de purge) |

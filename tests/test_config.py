@@ -20,6 +20,7 @@ ENV_KEYS = [
     "MBG_DB_PATH",
     "MBG_MONITOR_INTERVAL",
     "MBG_MONITOR_FORCE_TELEMETRY",
+    "MBG_NEIGHBOR_ACTIVE_SECS",
     "MBG_DUMP_DIR",
     "MBG_DUMP_INTERVAL",
     "MBG_RETENTION_DAYS",
@@ -51,6 +52,7 @@ def test_defaults_from_empty_env():
     assert c.db_path == "metrics.db"
     assert c.monitor_interval == 300.0
     assert c.force_telemetry is False
+    assert c.neighbor_active_secs == 0.0
     assert c.dump_dir is None
     assert c.dump_interval == 3600.0
     assert c.retention_days == 0.0
@@ -82,6 +84,7 @@ def test_full_env_override():
             "MBG_DB_PATH": "/data/m.db",
             "MBG_MONITOR_INTERVAL": "60",
             "MBG_MONITOR_FORCE_TELEMETRY": "true",
+            "MBG_NEIGHBOR_ACTIVE_SECS": "1800",
             "MBG_DUMP_DIR": "/data/csv",
             "MBG_DUMP_INTERVAL": "1800",
             "MBG_RETENTION_DAYS": "30",
@@ -110,6 +113,7 @@ def test_full_env_override():
     assert c.db_path == "/data/m.db"
     assert c.monitor_interval == 60.0
     assert c.force_telemetry is True
+    assert c.neighbor_active_secs == 1800.0
     assert c.dump_dir == "/data/csv"
     assert c.dump_interval == 1800.0
     assert c.retention_days == 30.0

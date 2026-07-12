@@ -118,8 +118,13 @@ class MeshtasticNodeLink:
             return False
         return self._liveness(self._iface)
 
-    def read_metrics(self) -> dict:
-        """Relève les métriques du node (device, identité, statut MQTT, position, voisins) — sans I/O radio."""
+    def read_metrics(self, *, now: Optional[float] = None, active_window: Optional[float] = None) -> dict:
+        """Relève les métriques du node (device, identité, statut MQTT, position, voisins) — sans I/O radio.
+
+        `now`/`active_window` (V0.8.2) : ne comptent que les voisins ACTIFS (entendus depuis
+        `now - active_window`) — le filtre s'applique à l'extraction, donc `count`/`best_snr`,
+        les voisins stockés (donc `distinct_*`) ET `max_distance_km` excluent les périmés.
+        """
         info = self._iface.getMyNodeInfo() or {}
         # Statut MQTT (onboarding) : lu de la config LOCALE du node (pas d'I/O radio).
         module_config = getattr(getattr(self._iface, "localNode", None), "moduleConfig", None)
@@ -127,8 +132,8 @@ class MeshtasticNodeLink:
         node = dict(metrics.node_metrics(info), **metrics.node_identity(info), **mqtt)
         nodes_by_num = getattr(self._iface, "nodesByNum", None) or {}
         pos = metrics.position(info)
-        nbrs = metrics.neighbors(nodes_by_num, info.get("num"))
-        # Portée : distance du voisin 0-hop le plus lointain (haversine passerelle↔voisins,
+        nbrs = metrics.neighbors(nodes_by_num, info.get("num"), now=now, active_window=active_window)
+        # Portée : distance du voisin 0-hop ACTIF le plus lointain (haversine passerelle↔voisins,
         # calcul LOCAL). Stockée sur node_metrics (pattern des colonnes mqtt_*).
         node["max_distance_km"] = metrics.max_distance_km(pos, nbrs)
         return {
