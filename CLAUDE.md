@@ -79,26 +79,32 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
   onboarding** `broker`/`mqtt_proxy_ok`/`map_reporting` (CONTRACTS onboarding §3, consommé par
   weewx-mbg) — mêmes colonnes sonde, 0/1 SQLite → vrais booléens, `null` si monitoring off.
 - **Monitoring / sonde (V0.3)** — `storage.py` : `MetricsStore` (SQLite stdlib, mode **WAL** →
-  2 écrivains multi-process ; tables `node_metrics`/`neighbors`/`link_quality` ; `record_*`,
-  `latest`, `history`, `prune`, `export_csv`). Connexion bornée par un context manager
-  `_conn` (toujours fermée → pas de fuite). `metrics.py` : lecteurs **purs** (`node_metrics`,
-  `node_identity` = id+longName du node local, `position`, `neighbors` 0-hop avec SNR/RSSI radio)
-  depuis un fake iface. `node_metrics` stocke aussi `node_id`/`node_name` + le **statut MQTT**
-  `mqtt_broker`/`mqtt_proxy_ok`/`mqtt_map_reporting` (lu de `localNode.moduleConfig.mqtt` par
-  `metrics.mqtt_status`, sans I/O radio ; `mqtt_proxy_ok` = `enabled` ET `proxy_to_client_enabled` ;
-  colonnes ajoutées par **migration auto** `ALTER TABLE` à l'init — les bases de prod pré-existantes
-  survivent — dont `max_distance_km`, V0.8.1) ; `store.latest()` ajoute
-  un agrégat `neighbors: {count, best_snr, max_distance_km, distinct_1h/24h/total}` — `max_distance_km`
-  vient du dernier relevé (haversine passerelle↔voisins, `metrics.max_distance_km`, calcul LOCAL) et
-  les `distinct_*` sont des `COUNT(DISTINCT node_id)` sur la table `neighbors` (fenêtres via l'horloge
-  du store). Exposé par `/metrics` — exclut le lat/lon transitoire des voisins (jamais persisté).
-  **Voisins actifs (V0.8.2)** : `metrics.neighbors` filtre À L'EXTRACTION sur `last_heard` récent
-  (`now - max(monitor_interval, 3600 s)`, override `MBG_NEIGHBOR_ACTIVE_SECS`) — sinon la NodeDB
-  accumule des nodes périmés dont la position gonfle `max_distance_km` ; le filtre se propage donc à
-  `count`/`best_snr`/`max_distance` ET aux voisins stockés (donc `distinct_*`). Voisin sans
-  `last_heard` = exclu. Le worker calcule la fenêtre (constante par session) + `now` (horloge injectée)
-  et les passe à `read_metrics`. Le **worker**
-  écrit node_metrics/neighbors (monitor injecté dans `run_one_session`) : **un relevé tôt
+  2 écrivains multi-process ; tables `node_metrics`/`neighbor_registry`/`link_quality` ; `record_node`,
+  `upsert_neighbors`, `record_link`, `latest`, `history`, `prune`, `export_csv`). Connexion bornée par
+  un context manager `_conn` (toujours fermée → pas de fuite). `metrics.py` : lecteurs **purs**
+  (`node_metrics`, `node_identity` = id+longName du node local, `position`, `neighbors` = voisins
+  actifs 0-hop **et** relayés avec SNR/RSSI/position/`hops_away`) depuis un fake iface. `node_metrics`
+  stocke aussi `node_id`/`node_name` + le **statut MQTT** `mqtt_broker`/`mqtt_proxy_ok`/
+  `mqtt_map_reporting` (lu de `localNode.moduleConfig.mqtt` par `metrics.mqtt_status`, sans I/O radio ;
+  `mqtt_proxy_ok` = `enabled` ET `proxy_to_client_enabled` ; colonnes ajoutées par **migration auto**
+  `ALTER TABLE` à l'init — les bases de prod pré-existantes survivent — dont `max_distance_km`, V0.8.1).
+  **Voisinage = registre persistant (PORTÉE v2)** : `neighbor_registry(node_id PK, last_heard, lat,
+  lon, snr, hops_away)`, **upsert** à chaque sonde (`INSERT OR REPLACE` des entendus, conservation des
+  autres). `store.latest()` calcule TOUT le bloc `neighbors` dessus, filtré `last_heard >= now - W`
+  (W = `MetricsStore(active_window=…)`, le superviseur passe `resolve_active_window(monitor_interval,
+  neighbor_active_secs)`) : `count`/`best_snr`/`max_distance_km` (DIRECT `hops_away==0`)/
+  `max_distance_hops_km` (MULTI-HOP `hops_away≥1`) sur le set actif ; `distinct_1h/24h/total` = nb de
+  lignes du registre par fenêtre (`total` = tout ; le registre n'est PAS purgé). Le registre **survit
+  aux reconnexions** (corrige le sous-comptage post-restart). `0.0` km valide (co-localisés). Au 1er
+  démarrage v2, `_seed_registry_from_legacy` graine le registre depuis l'ancienne table snapshot
+  `neighbors` (`INSERT OR IGNORE`, idempotent, jamais d'écrasement du live) pour préserver la
+  continuité de `distinct_total` ; ensuite l'ancienne table est orpheline (plus écrite/lue).
+  `node_metrics.max_distance_km` reste la série temporelle du DIRECT par sonde (calcul live, `/history`) —
+  peut sous-estimer le `max_distance_km` de `/metrics` (registre accumulé) ; divergence assumée/documentée. **Voisins actifs (V0.8.2)** :
+  `metrics.neighbors` filtre à l'extraction sur `last_heard >= now - W` (voisin sans `last_heard` =
+  exclu) ; le worker calcule W (constante par session) + `now` (horloge injectée) et les passe à
+  `read_metrics`. Le **worker**
+  écrit node_metrics + upsert du registre voisins (monitor injecté dans `run_one_session`) : **un relevé tôt
   dans chaque session** (dès le lien établi) **puis** à la cadence `monitor_interval` — sinon,
   lien instable oblige (sessions < `monitor_interval`), le tic périodique ne tomberait jamais
   et node_metrics resterait vide (bug terrain 2026-07-08). Le **superviseur** écrit
@@ -218,10 +224,12 @@ Les arguments CLI ne servent qu'en usage manuel/PoC et priment s'ils sont fourni
   (haversine passerelle↔voisins, colonne `node_metrics.max_distance_km`) + `distinct_1h/24h/total`
   (voisins distincts `COUNT(DISTINCT node_id)`). **Aucune nouvelle op BLE** (calcul/SQL sur le cache
   NodeDB + table `neighbors`). Contrat : `.agent-bus/CONTRACTS-portee.md §1`.
-- **V0.8.2** (fait) : **voisins actifs** — `metrics.neighbors` filtre `last_heard` récent à
-  l'extraction (fenêtre `max(monitor_interval, 3600 s)`, `MBG_NEIGHBOR_ACTIVE_SECS`) → `count`/
-  `best_snr`/`max_distance_km`/`distinct_*` n'incluent plus les nodes périmés (position obsolète
-  qui gonflait la distance). Contrat : `.agent-bus/CONTRACTS-portee.md` (amendé).
+- **V0.8.2** (fait) : **voisins actifs + registre persistant + multi-hop** (PORTÉE v2). (a) filtre
+  `last_heard` récent à l'extraction (fenêtre `max(monitor_interval, 3600 s)`, `MBG_NEIGHBOR_ACTIVE_SECS`)
+  → plus de nodes périmés dans les métriques ; (b) **registre `neighbor_registry`** persistant (upsert
+  par sonde) : le voisinage survit aux reconnexions (fini le sous-comptage post-restart) ; (c) 2ᵉ
+  distance **`max_distance_hops_km`** (relayés) à côté de `max_distance_km` (direct). Contrat :
+  `.agent-bus/CONTRACTS-portee.md §PORTÉE v2`.
 - **V0.9** : transports alternatifs (USB-série / WiFi-TCP) si le matériel du node le permet.
 
 ## Conventions

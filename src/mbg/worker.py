@@ -89,7 +89,8 @@ def _worker_body(
             # que les voisins ACTIFS ; le filtre s'applique à l'extraction (cf. read_metrics).
             data = link.read_metrics(now=clock(), active_window=active_window)
             store.record_node(data["node"], data["position"])
-            store.record_neighbors(data["neighbors"])
+            # Merge dans le registre persistant (survit aux reconnexions ; PORTÉE v2).
+            store.upsert_neighbors(data["neighbors"])
 
     # Stabilisation du lien BLE (V0.5) : opt-in via ble_supervision_timeout_ms > 0.
     tune = None

@@ -10,7 +10,7 @@ import signal
 from dataclasses import replace
 from typing import Optional, Sequence
 
-from . import __version__, api
+from . import __version__, api, metrics
 from .config import Config
 from .process_backend import spawn_worker
 from .storage import MetricsStore
@@ -91,8 +91,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # dans un thread du superviseur.
     ctx = multiprocessing.get_context("fork")
     # Store côté superviseur (record_link + export + lectures API). Le worker a le sien
-    # (écriture node_metrics/neighbors) — même fichier SQLite, mode WAL.
-    store = MetricsStore(config.db_path) if config.monitor_interval > 0 else None
+    # (écriture node_metrics/registre voisins) — même fichier SQLite, mode WAL. On lui donne
+    # la fenêtre "voisin actif" effective : latest() en a besoin pour filtrer count/best_snr/
+    # max_distance* (l'API l'appelle sans argument).
+    store = (
+        MetricsStore(
+            config.db_path,
+            active_window=metrics.resolve_active_window(
+                config.monitor_interval, config.neighbor_active_secs
+            ),
+        )
+        if config.monitor_interval > 0
+        else None
+    )
     supervisor = Supervisor(
         config, lambda cfg: spawn_worker(cfg, ctx), serve=_build_serve(config, store), store=store
     )

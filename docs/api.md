@@ -41,24 +41,31 @@ remontées (aucune op BLE) :
 ```json
 "neighbors": {
   "count": 7, "best_snr": 7.25,
-  "max_distance_km": 12.4,   // haversine passerelle↔voisin le plus lointain (km, 0,1) ; null si aucune position
-  "distinct_1h": 5,          // voisins distincts (COUNT DISTINCT node_id) entendus sur 1 h
-  "distinct_24h": 9,         // idem sur 24 h
-  "distinct_total": 23       // idem sur tout l'historique
+  "max_distance_km": 12.4,        // DIRECT (0-hop) : haversine passerelle↔voisin radio le plus lointain (km, 0,1)
+  "max_distance_hops_km": 48.0,   // MULTI-HOP (relayés, hops≥1) : voisin relayé le plus lointain (km, 0,1)
+  "distinct_1h": 5,               // voisins distincts entendus sur 1 h
+  "distinct_24h": 9,              // idem sur 24 h
+  "distinct_total": 23            // idem sur tout l'historique
 }
 ```
 
-`max_distance_km` provient du dernier relevé de la sonde (position passerelle `node_metrics.lat/lon`
-↔ position des voisins lue localement dans la NodeDB) ; `null` si la passerelle ou tous les voisins
-n'ont pas de position. Le bloc `neighbors` vaut `null` tant qu'aucun voisin n'a été relevé.
+`max_distance_km` (**direct**, `hops_away == 0`) et `max_distance_hops_km` (**multi-hop**,
+`hops_away ≥ 1`) sont des haversine entre la position de la passerelle et celle des voisins ;
+`null` si la passerelle ou tous les voisins de la catégorie n'ont pas de position. **`0.0` km est
+valide** (nodes co-localisés). L'écart direct↔multi-hop = la portée gagnée par le maillage.
 
-**Voisins actifs** (V0.8.2) : toutes ces métriques ne comptent que les voisins **entendus
-récemment** — la NodeDB accumule des nodes vus il y a longtemps dont la position périmée
-gonflerait `max_distance_km`. Un voisin est « actif » s'il a été entendu depuis
-`max(MBG_MONITOR_INTERVAL, 3600 s)` (surchargeable par `MBG_NEIGHBOR_ACTIVE_SECS`). Le filtre
-s'applique à l'extraction : il vaut pour `count`/`best_snr`/`max_distance_km` **et** pour les
-voisins persistés (donc `distinct_1h/24h/total`). Les snapshots enregistrés avant la V0.8.2
-peuvent encore peupler `distinct_24h/total` jusqu'à ce qu'ils vieillissent.
+**Registre persistant + voisins actifs** (V0.8.2 / PORTÉE v2) : les métriques se calculent sur un
+**registre NodeDB persistant** (`metrics.db`, une ligne par node, mergé avec la NodeDB live à
+chaque sonde) — il **survit aux reconnexions** (fini le sous-comptage post-restart). Toutes les
+métriques ne comptent que les voisins **actifs** = entendus depuis `max(MBG_MONITOR_INTERVAL,
+3600 s)` (surchargeable par `MBG_NEIGHBOR_ACTIVE_SECS`) : ça vaut pour `count`/`best_snr`/
+`max_distance*`. Les `distinct_1h/24h/total` comptent les nodes distincts du registre par fenêtre
+(`total` = tout l'historique). Le bloc `neighbors` vaut `null` tant qu'aucun voisin n'a été vu.
+Au 1er démarrage, le registre est **graine** depuis l'ancienne table `neighbors` (si présente) pour
+préserver la continuité de `distinct_total`. Note : la colonne `node_metrics.max_distance_km` de
+`/history` reste le **direct par sonde** (données live) et peut donc légèrement sous-estimer le
+`max_distance_km` de `/metrics` (calculé sur le registre accumulé, qui garde les voisins récents non
+ré-entendus à la dernière sonde).
 
 `GET /info` expose aussi le **statut d'onboarding** du node (consommé par l'intégration WeeWX) :
 `broker` (l'`address` MQTT configurée sur le node), `mqtt_proxy_ok` (module MQTT activé **et**

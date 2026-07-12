@@ -34,7 +34,7 @@ def _fake_backend(monkeypatch):
     # Évite tout vrai fork / vraie base SQLite.
     monkeypatch.setattr(main_mod, "Supervisor", FakeSupervisor)
     monkeypatch.setattr(main_mod, "spawn_worker", lambda config, ctx: "WORKER")
-    monkeypatch.setattr(main_mod, "MetricsStore", lambda path: ("STORE", path))
+    monkeypatch.setattr(main_mod, "MetricsStore", lambda path, active_window=None: ("STORE", path))
 
 
 @pytest.mark.parametrize("extra", [[], ["-v"]])

@@ -7,14 +7,22 @@ versionnage [SemVer](https://semver.org/lang/fr/). Notes et artefacts détaillé
 ## [0.8.2] — 2026-07-12
 ### Corrigé
 - **Voisins actifs** : les métriques de voisinage (`count`, `best_snr`, `max_distance_km`,
-  `distinct_*`) ne comptaient QUE le 0-hop, mais balayaient toute la NodeDB — y compris des nodes
-  entendus il y a longtemps, dont la **position périmée gonflait `max_distance_km`**. `metrics.neighbors()`
-  filtre désormais À L'EXTRACTION sur `last_heard` récent (voisins **actifs**) : le filtre se propage
-  à `count`/`best_snr`, aux voisins **stockés** (donc `distinct_1h/24h/total`) et à `max_distance_km`.
-  Fenêtre = `max(MBG_MONITOR_INTERVAL, 3600 s)`, surchargeable par **`MBG_NEIGHBOR_ACTIVE_SECS`**.
-  Un voisin sans `last_heard` est exclu (fraîcheur non prouvable). Note : les snapshots déjà stockés
-  avant ce correctif (avec nodes périmés) restent dans la table `neighbors` → `distinct_24h/total`
-  peut inclure de l'historique jusqu'à ce qu'il vieillisse.
+  `distinct_*`) balayaient toute la NodeDB — y compris des nodes entendus il y a longtemps, dont la
+  **position périmée gonflait `max_distance_km`**. Le voisinage ne compte plus que les voisins
+  **actifs** (entendus depuis `max(MBG_MONITOR_INTERVAL, 3600 s)`, surchargeable par
+  **`MBG_NEIGHBOR_ACTIVE_SECS`**). Un voisin sans `last_heard` est exclu (fraîcheur non prouvable).
+
+### Ajouté (PORTÉE v2)
+- **Registre NodeDB persistant** (`neighbor_registry` dans `metrics.db`, une ligne par node,
+  mergé avec la NodeDB live à chaque sonde) : toutes les métriques voisinage se calculent dessus →
+  elles **survivent aux reconnexions** (fini le sous-comptage post-restart où `count` restait
+  bloqué). Le registre n'est pas purgé (`distinct_total` = tout l'historique) ; il vieillit par le
+  filtre d'activité. Au 1er démarrage, il est **graine** depuis l'ancienne table snapshot `neighbors`
+  (si présente) pour préserver la continuité de `distinct_total`. L'ancienne table n'est plus utilisée
+  ensuite (orpheline dans les bases existantes).
+- **2ᵉ distance multi-hop** : `GET /metrics.neighbors` expose `max_distance_hops_km` (voisin relayé
+  `hops_away ≥ 1` le plus lointain) en plus de `max_distance_km` (direct, `hops_away == 0`).
+  `null` si la catégorie est vide ; **`0.0` km est valide** (nodes co-localisés).
 
 ## [0.8.1] — 2026-07-12
 ### Ajouté

@@ -133,9 +133,11 @@ class MeshtasticNodeLink:
         nodes_by_num = getattr(self._iface, "nodesByNum", None) or {}
         pos = metrics.position(info)
         nbrs = metrics.neighbors(nodes_by_num, info.get("num"), now=now, active_window=active_window)
-        # Portée : distance du voisin 0-hop ACTIF le plus lointain (haversine passerelle↔voisins,
-        # calcul LOCAL). Stockée sur node_metrics (pattern des colonnes mqtt_*).
-        node["max_distance_km"] = metrics.max_distance_km(pos, nbrs)
+        # node_metrics.max_distance_km = série temporelle du DIRECT (0-hop) sur données live
+        # (continuité v0.8.1 / /history). Les distances /metrics restant-surviving (direct +
+        # multi-hop) sont recalculées par store.latest() depuis le registre persistant.
+        direct = [n for n in nbrs if n["hops_away"] == 0]
+        node["max_distance_km"] = metrics.max_distance_km(pos, direct)
         return {
             "node": node,
             "position": pos,

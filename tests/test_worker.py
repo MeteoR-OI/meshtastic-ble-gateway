@@ -85,7 +85,7 @@ class FakeStore:
     def record_node(self, m, p):
         self.nodes.append((m, p))
 
-    def record_neighbors(self, n):
+    def upsert_neighbors(self, n):
         self.neigh.append(n)
 
 

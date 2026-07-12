@@ -235,6 +235,33 @@ def test_read_metrics_active_filter_excludes_stale_neighbor():
     assert data["node"]["max_distance_km"] < 10
 
 
+def test_read_metrics_returns_hops_and_node_distance_is_direct_only():
+    # neighbors inclut les relayés (PORTÉE v2) ; node_metrics.max_distance_km = DIRECT seul.
+    iface = SimpleNamespace(
+        getMyNodeInfo=lambda: {
+            "num": 9, "user": {"id": "!009"},
+            "position": {"latitude": -21.0, "longitude": 55.5},
+        },
+        nodesByNum={
+            1: {"hopsAway": 0, "user": {"id": "!direct"}, "lastHeard": 990,
+                "position": {"latitude": -21.02, "longitude": 55.5}},   # ~2 km, direct
+            2: {"hopsAway": 3, "user": {"id": "!relay"}, "lastHeard": 990,
+                "position": {"latitude": -25.0, "longitude": 55.5}},    # ~440 km, relayé
+        },
+    )
+    link = MeshtasticNodeLink(
+        "addr", lambda m: None,
+        interface_factory=lambda a: iface,
+        subscribe=lambda h, t: None,
+        unsubscribe=lambda h, t: None,
+    )
+    link.open()
+    data = link.read_metrics(now=1000.0, active_window=100.0)
+    assert {n["node_id"] for n in data["neighbors"]} == {"!direct", "!relay"}  # relayé inclus
+    # la colonne node_metrics ne prend QUE le direct -> ~2 km, pas les ~440 km du relayé
+    assert data["node"]["max_distance_km"] < 10
+
+
 def test_read_metrics_includes_mqtt_status():
     iface = SimpleNamespace(
         getMyNodeInfo=lambda: {"user": {"id": "!009"}},

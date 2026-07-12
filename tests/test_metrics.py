@@ -67,20 +67,23 @@ def test_node_identity_fallbacks():
     assert metrics.node_identity({}) == {"node_id": None, "node_name": None}
 
 
-def test_neighbors_filters_direct_and_self():
+def test_neighbors_includes_hops_and_self_excluded():
     nodes = {
         1: {"hopsAway": 0, "user": {"id": "!001"}, "snr": 6.0, "rssi": -90, "lastHeard": 10,
             "position": {"latitude": -21.0, "longitude": 55.5}},
-        2: {"hopsAway": 2, "user": {"id": "!002"}},  # via relais -> exclu
+        2: {"hopsAway": 2, "user": {"id": "!002"}},  # relayé -> INCLUS (PORTÉE v2), hops_away=2
         3: {"hopsAway": 0},  # 0-hop sans user ni position -> id dérivé, lat/lon None
+        4: {"user": {"id": "!004"}},  # hopsAway absent -> non classable -> exclu
         9: {"hopsAway": 0},  # self -> exclu
     }
     out = metrics.neighbors(nodes, my_num=9)  # sans filtre temporel
     ids = {n["node_id"] for n in out}
-    assert ids == {"!001", "!00000003"}
+    assert ids == {"!001", "!002", "!00000003"}  # relayé inclus, self + hops-inconnu exclus
     direct = next(n for n in out if n["node_id"] == "!001")
     assert direct["snr"] == 6.0 and direct["rssi"] == -90 and direct["last_heard"] == 10
-    assert direct["lat"] == -21.0 and direct["lon"] == 55.5  # position lue localement
+    assert direct["lat"] == -21.0 and direct["lon"] == 55.5 and direct["hops_away"] == 0
+    relayed = next(n for n in out if n["node_id"] == "!002")
+    assert relayed["hops_away"] == 2
     without = next(n for n in out if n["node_id"] == "!00000003")
     assert without["lat"] is None and without["lon"] is None
 

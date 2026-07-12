@@ -85,15 +85,16 @@ def neighbors(
     now: Optional[float] = None,
     active_window: Optional[float] = None,
 ) -> List[Dict[str, Any]]:
-    """Voisins directs (0-hop) **actifs**, avec SNR/RSSI + position (si connue).
+    """Voisins **actifs** entendus (0-hop ET relayés), avec SNR/RSSI + position + `hops_away`.
 
     `lat`/`lon` sont lus LOCALEMENT dans le dict NodeDB déjà en main (aucune op BLE) ;
-    ils servent au calcul de `max_distance_km`. None si le voisin n'a jamais diffusé
-    sa position.
+    ils servent au calcul des distances. None si le voisin n'a jamais diffusé sa position.
+    `hops_away` = 0 (radio directe) ou ≥ 1 (relayé) — le tri direct/multi-hop se fait à la
+    consommation (PORTÉE v2). Le node local (`my_num`) est exclu.
 
     Filtre d'ACTIVITÉ (V0.8.2) : si `now` ET `active_window` sont fournis, on ne garde que
     les voisins entendus depuis `now - active_window` — la NodeDB accumule des nodes entendus
-    il y a longtemps dont la position PÉRIMÉE gonflerait `max_distance`. Un voisin sans
+    il y a longtemps dont la position PÉRIMÉE gonflerait les distances. Un voisin sans
     `lastHeard` ne peut pas prouver sa fraîcheur → exclu quand le filtre est actif. Sans les
     deux paramètres : pas de filtre temporel (compat).
     """
@@ -103,7 +104,8 @@ def neighbors(
     for num, node in (nodes_by_num or {}).items():
         if num == my_num:
             continue
-        if node.get("hopsAway") != 0:  # 0-hop = portée radio directe
+        hops = node.get("hopsAway")
+        if hops is None:  # hops inconnu -> on ne peut pas classer direct/relayé
             continue
         last_heard = node.get("lastHeard")
         if filtering and (last_heard is None or last_heard < cutoff):
@@ -118,6 +120,7 @@ def neighbors(
                 "last_heard": last_heard,
                 "lat": pos.get("latitude"),
                 "lon": pos.get("longitude"),
+                "hops_away": hops,
             }
         )
     return out
@@ -134,11 +137,12 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def max_distance_km(gateway: Dict[str, Any], neighbor_list: List[Dict[str, Any]]) -> Optional[float]:
-    """Distance (km) du voisin 0-hop le plus lointain dont on connaît la position.
+    """Distance (km) du voisin le plus lointain, parmi `neighbor_list`, dont on connaît la position.
 
-    Haversine entre la position de la passerelle (`gateway["lat"]/["lon"]`, cf.
-    `position()`) et chaque voisin. None si la passerelle n'a pas de position, ou si
-    aucun voisin n'en a. Arrondi à 0,1 km. Purement local (aucune op BLE).
+    Haversine entre la position de la passerelle (`gateway["lat"]/["lon"]`, cf. `position()`)
+    et chaque voisin. None si la passerelle n'a pas de position, ou si aucun voisin de la liste
+    n'en a. `0.0` est une valeur VALIDE (nodes co-localisés). Arrondi à 0,1 km. Le tri
+    direct/multi-hop est fait par l'appelant (filtre `hops_away`). Purement local (aucune op BLE).
     """
     glat, glon = gateway.get("lat"), gateway.get("lon")
     if glat is None or glon is None:
