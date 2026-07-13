@@ -5,9 +5,20 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Mapping, Optional
+from typing import Mapping, Optional, Tuple
 
 DEFAULT_BLE = "E6:E3:53:4B:BE:A5"  # T114 par défaut (MAC côté BlueZ/RPi)
+
+
+def _csv_tuple(raw: Optional[str]) -> Tuple[str, ...]:
+    """Découpe une liste `a,b,c` d'env en tuple (immutable → hashable pour le dataclass frozen)."""
+    if not raw:
+        return ()
+    return tuple(item.strip() for item in raw.split(",") if item.strip())
+
+
+def _is_true(raw: Optional[str]) -> bool:
+    return (raw or "").lower() in ("1", "true", "yes")
 
 
 @dataclass(frozen=True)
@@ -49,6 +60,29 @@ class Config:
     # 0 = off. >0 = supervision timeout (ms) imposé au lien via `hcitool lecup` à chaque
     # session (contourne le bug BlueZ #717 sur lien faible ; cf. link_tuner).
     ble_supervision_timeout_ms: int = 0
+    # Traceroute (endpoint /traceroute + planificateur auto). Cf. traceroute.py / traceroute_scheduler.py.
+    # L'ENDPOINT est dispo dès que l'API a un token (coordinateur monté dans le worker) ;
+    # le PLANIFICATEUR est opt-in via `traceroute_enabled` (défaut off). Parcimonie airtime :
+    # défauts conservateurs (quelques traceroute/jour), très en deçà du rate-limit firmware.
+    traceroute_enabled: bool = False  # active le planificateur automatique (opt-in)
+    traceroute_policy: str = "staleness"  # static | staleness (recent|adaptive à venir)
+    traceroute_daily_budget: int = 6  # nb max de traceroute auto / jour (fenêtre active)
+    traceroute_hop_limit: int = 7  # hop_limit par défaut (borné [1..7])
+    traceroute_targets: Tuple[str, ...] = ()  # cibles !hex (requis si policy=static)
+    traceroute_recent_h: float = 24.0  # policy=staleness : fenêtre "entendu récemment" (h)
+    traceroute_per_node_min_s: float = 21600.0  # intervalle min par nœud (défaut 6 h)
+    traceroute_min_gap_s: float = 900.0  # intervalle min global entre 2 traceroute (défaut 15 min)
+    traceroute_quiet_hours: str = "22:00-06:00"  # plage sans émission (TZ station ; "" = aucune)
+    traceroute_max_chanutil: float = 40.0  # skip le tick si channel_utilization local dépasse (%)
+    traceroute_priority: Tuple[str, ...] = ()  # policy=staleness : nœuds prioritaires (facultatif)
+    traceroute_tick_s: float = 300.0  # période d'évaluation du planificateur (s)
+    traceroute_topic: str = "mbg/traceroute"  # topic MQTT de publication du résultat
+
+    @property
+    def traceroute_active(self) -> bool:
+        """Vrai s'il faut monter le coordinateur/le store traceroute : planificateur opt-in
+        activé, OU API ouverte (l'endpoint /traceroute doit répondre)."""
+        return self.traceroute_enabled or bool(self.api_token)
 
     @classmethod
     def from_env(cls, env: Optional[Mapping[str, str]] = None) -> "Config":
@@ -82,4 +116,17 @@ class Config:
             duty_off=float(src.get("MBG_DUTY_OFF", "1800")),
             tier_hysteresis=float(src.get("MBG_TIER_HYSTERESIS", "3")),
             ble_supervision_timeout_ms=int(src.get("MBG_BLE_SUPERVISION_TIMEOUT_MS", "0")),
+            traceroute_enabled=_is_true(src.get("MBG_TRACEROUTE_ENABLED")),
+            traceroute_policy=src.get("MBG_TRACEROUTE_POLICY", "staleness"),
+            traceroute_daily_budget=int(src.get("MBG_TRACEROUTE_DAILY_BUDGET", "6")),
+            traceroute_hop_limit=int(src.get("MBG_TRACEROUTE_HOP_LIMIT", "7")),
+            traceroute_targets=_csv_tuple(src.get("MBG_TRACEROUTE_TARGETS")),
+            traceroute_recent_h=float(src.get("MBG_TRACEROUTE_RECENT_H", "24")),
+            traceroute_per_node_min_s=float(src.get("MBG_TRACEROUTE_PER_NODE_MIN_S", "21600")),
+            traceroute_min_gap_s=float(src.get("MBG_TRACEROUTE_MIN_GAP_S", "900")),
+            traceroute_quiet_hours=src.get("MBG_TRACEROUTE_QUIET_HOURS", "22:00-06:00"),
+            traceroute_max_chanutil=float(src.get("MBG_TRACEROUTE_MAX_CHANUTIL", "40")),
+            traceroute_priority=_csv_tuple(src.get("MBG_TRACEROUTE_PRIORITY")),
+            traceroute_tick_s=float(src.get("MBG_TRACEROUTE_TICK_S", "300")),
+            traceroute_topic=src.get("MBG_TRACEROUTE_TOPIC", "mbg/traceroute"),
         )

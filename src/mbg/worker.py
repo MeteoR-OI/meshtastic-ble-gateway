@@ -23,6 +23,8 @@ from .mqtt_publisher import PahoPublisher
 from .node import MeshtasticNodeLink
 from .session import run_one_session
 from .storage import MetricsStore
+from .traceroute import TracerouteCoordinator
+from .traceroute_scheduler import TracerouteScheduler
 
 log = logging.getLogger("mbg.worker")
 
@@ -59,6 +61,8 @@ def _worker_body(
     store_cls=MetricsStore,
     tuner: Callable[[Config], bool] = tune_link,
     clock: Callable[[], float] = time.time,
+    coordinator_cls=TracerouteCoordinator,
+    scheduler_cls=TracerouteScheduler,
 ) -> int:
     """Logique testable du worker (sans os._exit / signaux)."""
 
@@ -74,9 +78,13 @@ def _worker_body(
     def nodelink_factory(address, on_proxy, on_lost):
         return nodelink_cls(address, on_proxy, on_lost)
 
+    # Store partagé (WAL) : monitoring (node_metrics/registre) ET/OU traceroute (historique/état).
+    store = None
+    if config.monitor_interval > 0 or config.traceroute_active:
+        store = store_cls(config.db_path)
+
     monitor = None
     if config.monitor_interval > 0:
-        store = store_cls(config.db_path)
         # Fenêtre "voisin actif" (V0.8.2) : constante par session (dépend de la config).
         active_window = metrics_mod.resolve_active_window(
             config.monitor_interval, config.neighbor_active_secs
@@ -98,10 +106,34 @@ def _worker_body(
         def tune():
             tuner(config)
 
+    # Traceroute : coordinateur (endpoint + planificateur) monté sur l'interface vivante.
+    traceroute_setup = None
+    if config.traceroute_active:
+        def traceroute_setup(link, publisher):
+            coordinator = coordinator_cls(
+                send_fn=link.send_traceroute,
+                publish_fn=publisher.publish,
+                store=store,
+                id_of=link.node_id_of,
+                gateway_id_fn=link.gateway_id,
+                topic=config.traceroute_topic,
+                clock=clock,
+            )
+            scheduler = None
+            if config.traceroute_enabled:  # planificateur opt-in (l'endpoint marche sans)
+                scheduler = scheduler_cls(
+                    config, store,
+                    nodes_fn=link.nodes,
+                    my_num_fn=link.my_num,
+                    chanutil_fn=lambda: (store.latest().get("node") or {}).get("channel_util"),
+                    clock=clock,
+                )
+            return coordinator, scheduler
+
     try:
         session(
             config, publisher_factory, nodelink_factory, heartbeat, lambda: True,
-            commands=commands, monitor=monitor, tune=tune,
+            commands=commands, monitor=monitor, tune=tune, traceroute_setup=traceroute_setup,
         )
     except Exception as exc:  # noqa: BLE001 — toute panne = fin de session, le parent respawn
         log.warning("session worker interrompue : %s", exc)

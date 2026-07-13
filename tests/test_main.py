@@ -99,19 +99,21 @@ def test_main_ble_supervision_enabled(captured_signals, monkeypatch):
 
 
 def test_build_serve_none_without_token():
-    assert _build_serve(Config(), None) is None
+    assert _build_serve(Config(), None, None) is None
 
 
 def test_build_serve_calls_api(monkeypatch):
     called = {}
     monkeypatch.setattr(main_mod.api, "serve", lambda *a: called.setdefault("args", a))
     serve = _build_serve(
-        Config(api_token="t", api_host="h", api_port=9, control_timeout=3, monitor_interval=300), "METRICS"
+        Config(api_token="t", api_host="h", api_port=9, control_timeout=3, monitor_interval=300),
+        "METRICS", "TRACEROUTE",
     )
     serve("SUBMIT", "SHOULD_RUN")
     args = called["args"]
     assert args[:7] == ("h", 9, "t", 3, "SUBMIT", "METRICS", "SHOULD_RUN")
     assert args[7]["monitor_interval"] == 300 and args[7]["battery_tiers"] is False and args[7]["version"]
+    assert args[7]["traceroute_enabled"] is False and args[8] == "TRACEROUTE"
 
 
 def test_main_no_store_when_monitoring_off(captured_signals, monkeypatch):

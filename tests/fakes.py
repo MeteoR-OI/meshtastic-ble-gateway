@@ -72,6 +72,10 @@ class FakeNodeLink:
         self.alive = True  # basculer à False pour simuler un décrochage BLE
 
         self.sent = []  # commandes downlink reçues
+        self.traceroute = None
+
+    def attach_traceroute(self, coordinator):
+        self.traceroute = coordinator
 
     def open(self):
         self.opened = True

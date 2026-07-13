@@ -74,3 +74,26 @@ Détails : [battery-tiers.md](battery-tiers.md).
 | `MBG_BLE_SUPERVISION_TIMEOUT_MS` | `0` | `>0` (ex. `6000`) = supervision timeout (ms) imposé au lien via `hcitool lecup` à chaque session. **Nécessite `CAP_NET_ADMIN`+`CAP_NET_RAW` + `hcitool`** |
 
 Détails et prérequis capabilities : [resilience.md](resilience.md#stabilisation-du-lien-ble-signal-faible).
+
+## Traceroute (endpoint + planificateur)
+
+L'endpoint `POST /traceroute` est actif dès que l'API l'est (`MBG_API_TOKEN`). Le **planificateur
+automatique** est opt-in (`MBG_TRACEROUTE_ENABLED`). Défauts conservateurs (parcimonie airtime).
+
+| Variable | Défaut | Rôle |
+|---|---|---|
+| `MBG_TRACEROUTE_ENABLED` | – | `true` = active le **planificateur** (endpoint indépendant) |
+| `MBG_TRACEROUTE_POLICY` | `staleness` | `static` \| `staleness` |
+| `MBG_TRACEROUTE_DAILY_BUDGET` | `6` | nb max de traceroute auto / jour |
+| `MBG_TRACEROUTE_HOP_LIMIT` | `7` | hop_limit par défaut (borné [1..7]) |
+| `MBG_TRACEROUTE_TARGETS` | – | `!hex,!hex` (**requis si** `policy=static`) |
+| `MBG_TRACEROUTE_RECENT_H` | `24` | `staleness` : fenêtre « entendu récemment » (h) |
+| `MBG_TRACEROUTE_PER_NODE_MIN_S` | `21600` | intervalle min par nœud (6 h) |
+| `MBG_TRACEROUTE_MIN_GAP_S` | `900` | intervalle min global (15 min) |
+| `MBG_TRACEROUTE_QUIET_HOURS` | `22:00-06:00` | plage sans émission (fuseau station ; vide = aucune) |
+| `MBG_TRACEROUTE_MAX_CHANUTIL` | `40` | skip le tick si `channel_utilization` local dépasse (%) |
+| `MBG_TRACEROUTE_PRIORITY` | – | `staleness` : nœuds prioritaires (facultatif) |
+| `MBG_TRACEROUTE_TICK_S` | `300` | période d'évaluation du planificateur (s) |
+| `MBG_TRACEROUTE_TOPIC` | `mbg/traceroute` | topic MQTT de publication du résultat |
+
+Détails, format du résultat et exemples `curl` : [traceroute.md](traceroute.md).

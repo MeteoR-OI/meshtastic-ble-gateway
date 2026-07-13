@@ -19,7 +19,7 @@ from .supervisor import Supervisor
 log = logging.getLogger("mbg")
 
 
-def _build_serve(config: Config, metrics):
+def _build_serve(config: Config, metrics, traceroute):
     """Renvoie un `serve(submit, should_run)` pour l'API, ou None si pas de token."""
     if not config.api_token:
         return None
@@ -29,12 +29,13 @@ def _build_serve(config: Config, metrics):
         "version": __version__,
         "monitor_interval": config.monitor_interval,
         "battery_tiers": config.battery_tiers,
+        "traceroute_enabled": config.traceroute_enabled,
     }
 
     def serve(submit, should_run):
         api.serve(
             config.api_host, config.api_port, config.api_token,
-            config.control_timeout, submit, metrics, should_run, info,
+            config.control_timeout, submit, metrics, should_run, info, traceroute,
         )
 
     return serve
@@ -101,11 +102,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 config.monitor_interval, config.neighbor_active_secs
             ),
         )
-        if config.monitor_interval > 0
+        if config.monitor_interval > 0 or config.traceroute_active
         else None
     )
+    # `metrics` de l'API n'est exposé que si le monitoring est actif (préserve le 404 de
+    # /metrics|/history quand il est off) ; le lecteur traceroute est indépendant.
+    metrics_for_api = store if config.monitor_interval > 0 else None
+    traceroute_reader = (
+        api.TracerouteReader(store) if store is not None and config.traceroute_active else None
+    )
     supervisor = Supervisor(
-        config, lambda cfg: spawn_worker(cfg, ctx), serve=_build_serve(config, store), store=store
+        config,
+        lambda cfg: spawn_worker(cfg, ctx),
+        serve=_build_serve(config, metrics_for_api, traceroute_reader),
+        store=store,
     )
 
     stop = {"flag": False}

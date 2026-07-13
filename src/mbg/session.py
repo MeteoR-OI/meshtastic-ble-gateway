@@ -35,6 +35,7 @@ def run_one_session(
     commands=None,
     monitor: Optional[Callable[[object], None]] = None,
     tune: Optional[Callable[[], None]] = None,
+    traceroute_setup: Optional[Callable[[object, object], tuple]] = None,
 ) -> int:
     """Établit broker + BLE, relaie jusqu'au décrochage. Renvoie le nb de paquets relayés.
 
@@ -53,6 +54,13 @@ def run_one_session(
     link.open()
     if tune is not None:
         tune()  # une fois par session : impose le supervision timeout sur le lien vivant
+    # Traceroute (endpoint + planificateur) : le coordinateur réutilise l'interface vivante
+    # (jamais de 2ᵉ connexion BLE) ; le scheduler, si présent, est interrogé à chaque poll.
+    coordinator = None
+    scheduler = None
+    if traceroute_setup is not None:
+        coordinator, scheduler = traceroute_setup(link, publisher)
+        link.attach_traceroute(coordinator)
     # Cadence de monitoring exprimée en nombre de polls (0 = monitoring désactivé).
     polls_per_monitor = (
         max(1, round(config.monitor_interval / config.poll_interval))
@@ -69,6 +77,13 @@ def run_one_session(
         if commands is not None:
             for cmd in commands.drain():
                 commands.reply(cmd["id"], link.send(cmd))
+        if scheduler is not None:
+            auto = scheduler.poll()  # planificateur : au plus 1 traceroute par tick (write BLE)
+            if auto is not None:
+                coordinator.start(
+                    auto["dest"], hop_limit=auto["hop_limit"], channel_index=auto["channel_index"],
+                    timeout_s=auto["timeout_s"], source=auto["source"],
+                )
         if polls_per_monitor:
             # Relève une fois TÔT dans la session (dès le lien établi) puis à la cadence
             # monitor_interval. Sinon, si la session BLE meurt avant le 1er tic périodique

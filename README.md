@@ -42,6 +42,8 @@ pas publier tout seul (pas de WiFi). Ce pont, hébergé sur un Raspberry Pi, se 
   systemd, disconnect bluez après gel — voir [resilience](docs/resilience.md).
 - **API de contrôle** (opt-in) : texte, télémétrie, position, **requêtes vers un node distant**,
   admin — voir [api](docs/api.md).
+- **Traceroute** : endpoint `POST /traceroute` (async ou bloquant) + **planificateur automatique**
+  (opt-in, budget/politique) — sans coupure BLE — voir [traceroute](docs/traceroute.md).
 - **Monitoring / sonde** : métriques node + qualité lien en SQLite, API + export CSV —
   voir [monitoring](docs/monitoring.md).
 - **Paliers batterie + duty-cycle** : adaptatif selon la batterie du node —
@@ -72,6 +74,7 @@ Déploiement RPi (systemd), y compris le cas **Buster** : **[docs/installation.m
 | [installation.md](docs/installation.md) | Déploiement RPi (Bullseye/Buster), systemd, MeshForge, mise à jour |
 | [configuration.md](docs/configuration.md) | **Toutes** les variables d'environnement `MBG_*` |
 | [api.md](docs/api.md) | API de contrôle : endpoints, `curl`, requêtes distantes, codes |
+| [traceroute.md](docs/traceroute.md) | Traceroute : endpoint `POST /traceroute`, planificateur, format MQTT/`/history` |
 | [monitoring.md](docs/monitoring.md) | Sonde SQLite, `/metrics`, `/history`, export CSV |
 | [battery-tiers.md](docs/battery-tiers.md) | Paliers batterie + duty-cycle |
 | [resilience.md](docs/resilience.md) | Isolation de process, watchdog, tuning du lien BLE |

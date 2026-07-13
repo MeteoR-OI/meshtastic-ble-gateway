@@ -14,6 +14,7 @@ import threading
 from typing import Any, Callable, Optional
 
 from . import metrics
+from . import traceroute as traceroute_mod
 from .control import execute_command
 
 log = logging.getLogger("mbg.node")
@@ -101,6 +102,7 @@ class MeshtasticNodeLink:
         self._iface = None
         self._pending_acks = {}  # packet_id -> (label, timer) pour want_ack
         self._ack_lock = threading.Lock()
+        self._traceroute = None  # TracerouteCoordinator (attaché par la session si activé)
 
     def _handler(self, proxymessage=None, interface=None) -> None:
         """Signature attendue par le pubsub meshtastic (kwargs nommés)."""
@@ -145,12 +147,68 @@ class MeshtasticNodeLink:
         }
 
     def send(self, command: dict) -> dict:
-        """Exécute une commande downlink (write BLE). Voir `control`. Suit l'ACK si demandé."""
+        """Exécute une commande downlink (write BLE). Voir `control`. Suit l'ACK si demandé.
+
+        `type == "traceroute"` est routé vers le coordinateur (émission + corrélation async) au
+        lieu de `control` : la réponse arrive plus tard dans la boucle de réception (voir traceroute)."""
+        if command.get("type") == "traceroute":
+            return self._send_traceroute_command(command)
         result = self._executor(self._iface, command)
         packet_id = result.get("packet_id")
         if command.get("want_ack") and packet_id is not None:
             self._track_ack(packet_id, f"canal={command.get('channel')}")
         return result
+
+    def _send_traceroute_command(self, command: dict) -> dict:
+        if self._traceroute is None:
+            return {"ok": False, "error": "traceroute non activé"}
+        try:
+            return self._traceroute.start(
+                command.get("dest"),
+                hop_limit=command.get("hop_limit", 7),
+                channel_index=command.get("channel_index", 0),
+                timeout_s=command.get("timeout_s", 30.0),
+                source=command.get("source", "api"),
+            )
+        except ValueError as exc:  # dest invalide (déjà validé côté API, ceinture+bretelles)
+            return {"ok": False, "error": str(exc)}
+
+    # --- Traceroute : frontières exposées au coordinateur (injecté par la session) ---
+    def attach_traceroute(self, coordinator) -> None:
+        """Branche un `TracerouteCoordinator` (l'`on_packet` sera nourri par `_handler_receive`)."""
+        self._traceroute = coordinator
+
+    def send_traceroute(self, dest_num: int, hop_limit: int, channel_index: int):
+        """Émet un paquet TRACEROUTE_APP (RouteDiscovery vide, wantResponse) → renvoie son id."""
+        from meshtastic.protobuf import mesh_pb2, portnums_pb2
+
+        packet = self._iface.sendData(
+            mesh_pb2.RouteDiscovery(),
+            destinationId=dest_num,
+            portNum=portnums_pb2.PortNum.TRACEROUTE_APP,
+            wantResponse=True,
+            channelIndex=channel_index,
+            hopLimit=hop_limit,
+        )
+        return getattr(packet, "id", None)
+
+    def nodes(self) -> dict:
+        return getattr(self._iface, "nodesByNum", None) or {}
+
+    def my_num(self):
+        return (self._iface.getMyNodeInfo() or {}).get("num")
+
+    def node_id_of(self, num: int) -> str:
+        node = self.nodes().get(num) or {}
+        return (node.get("user") or {}).get("id") or traceroute_mod.hexid(num)
+
+    def gateway_id(self):
+        info = self._iface.getMyNodeInfo() or {}
+        gid = (info.get("user") or {}).get("id")
+        if gid:
+            return gid
+        num = info.get("num")
+        return traceroute_mod.hexid(num) if num is not None else None
 
     def _track_ack(self, packet_id, label: str) -> None:
         """Arme l'attente d'un ACK radio (ROUTING_APP entrant) + un timeout de repli."""
@@ -167,7 +225,9 @@ class MeshtasticNodeLink:
             log.info("[downlink] ACK %s → timeout (aucun accusé reçu)", label)
 
     def _handler_receive(self, packet=None, interface=None) -> None:
-        """ROUTING_APP dont le requestId matche un want_ack -> accusé radio logué."""
+        """ROUTING_APP -> accusé radio (want_ack) ; TRACEROUTE_APP -> corrélation traceroute."""
+        if self._traceroute is not None:
+            self._traceroute.on_packet(packet or {})
         decoded = (packet or {}).get("decoded") or {}
         if decoded.get("portnum") != ROUTING_PORTNUM:
             return
@@ -194,6 +254,8 @@ class MeshtasticNodeLink:
             for _label, timer in self._pending_acks.values():
                 timer.cancel()
             self._pending_acks.clear()
+        if self._traceroute is not None:
+            self._traceroute.cancel_all()
         if self._iface is not None:
             self._iface.close()
             self._iface = None

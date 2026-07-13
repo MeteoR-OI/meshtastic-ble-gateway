@@ -27,10 +27,11 @@ BASE=http://<hote-passerelle>:8080
 | `POST` | `/send/position` | (re)diffuse la position **fixe** du node (jamais `0,0`) |
 | `POST` | `/request/position` | **requête** de position à un node **distant** (`dest` requis) |
 | `POST` | `/admin` | réglage curaté du node (`role`, `position_broadcast_secs`, `gps_mode`, `device_update_interval`) |
+| `POST` | `/traceroute` | trace la route mesh vers un node (async `202` ou `wait:true` bloquant) — voir [traceroute.md](traceroute.md) |
 | `GET` | `/health` | ping |
-| `GET` | `/info` | découverte : `version`, `node_id`, `node_name`, `monitor_interval`, `battery_tiers`, `broker`, `mqtt_proxy_ok`, `map_reporting` |
+| `GET` | `/info` | découverte : `version`, `node_id`, `node_name`, `monitor_interval`, `battery_tiers`, `traceroute_enabled`, `broker`, `mqtt_proxy_ok`, `map_reporting` |
 | `GET` | `/metrics` | dernier relevé de la sonde ([monitoring.md](monitoring.md)) |
-| `GET` | `/history` | série `node_metrics` |
+| `GET` | `/history` | série `node_metrics` (ou `?type=traceroute` → historique traceroute) |
 
 `GET /info` renvoie la **version** de la passerelle + l'**identité du node** (id + nom humain, dès
 qu'un relevé a été fait) + quelques réglages — utile pour la découverte (ex. tuile d'un installateur).

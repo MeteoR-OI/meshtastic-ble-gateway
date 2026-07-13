@@ -71,10 +71,37 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
   `node` s'abonne à `meshtastic.receive`, corrèle un `ROUTING_APP` entrant dont le
   `requestId` == l'id d'un paquet `want_ack` envoyé, et logue `[downlink] ACK … → reçu/échec`
   (+ timeout de repli). Broadcast = ACK implicite (ROUTING_APP from self), même chemin.
+- **Traceroute (endpoint `POST /traceroute` + planificateur auto)** — `traceroute.py` : émission
+  `TRACEROUTE_APP` (`RouteDiscovery` vide, `wantResponse`) via `iface.sendData` (qui **retourne** le
+  paquet → `.id` = clé de corrélation ; `sendTraceRoute` ne le retourne pas, et son
+  `waitForTraceRoute()` bloquant est PROSCRIT — il squatterait le thread). La réponse arrive dans la
+  boucle `meshtastic.receive` déjà branchée (`node._handler_receive` la passe à
+  `TracerouteCoordinator.on_packet`), corrélée par `requestId == id` **ET** `from == dest`, parsée
+  (`decode_route` : chemin aller `[origin,*route,dest]` + retour si `snr_back`, SNR = firmware/4,
+  sentinelle -128→None), puis **publiée MQTT** (topic `MBG_TRACEROUTE_TOPIC`) **+ écrite SQLite** ;
+  un timer de repli produit un statut `timeout`. **Rien ne bloque le worker** : le mode `wait:true`
+  de l'endpoint N'attend PAS côté worker (figerait le poll → SIGKILL) — l'API (superviseur) relit la
+  ligne SQLite (WAL) via `api.TracerouteReader.wait`. Tout exécuté **dans le worker qui tient déjà le
+  BLE** → jamais de 2ᵉ connexion, aucune coupure. Fonctions pures (`normalize_dest`, `decode_snr`,
+  `decode_route`, `build_result`) + coordinateur à frontières injectées (send/publish/store/horloge/
+  timer). `traceroute_scheduler.py` : `TracerouteScheduler.decide(now)` applique les garde-fous
+  (min-gap global +jitter, min/nœud, budget quotidien reset minuit TZ, heures calmes, garde
+  chan-util, BLE down) puis la **politique enfichable** (`static` round-robin / `staleness` = le node
+  entendu récemment au dernier traceroute réussi le plus ancien ; registre `_POLICIES` extensible
+  `recent`/`adaptive`) ; opt-in `MBG_TRACEROUTE_ENABLED` (défaut off), tout injecté (horloge/heure
+  locale/RNG jitter). Le coordinateur est monté par le worker (`traceroute_setup` passé à
+  `run_one_session`) dès que `config.traceroute_active` (= planificateur ON **ou** API ouverte —
+  l'endpoint marche sans le planificateur) ; le store SQLite existe alors même si le monitoring est
+  off (mais `/metrics` reste gouverné par le monitoring). SQLite : table `traceroute` (ISO pour
+  l'affichage + `sent_epoch/recv_epoch` pour le calcul du planificateur) + requêtes d'état
+  (`traceroute_last_sent`/`_last_attempt_by_node`/`_last_success_by_node`/`_count_since`/`_counters`).
+  Voir `docs/traceroute.md`.
 - `api.py` — `handle_request(...)` **pur** (auth token + routage POST downlink via `dispatch`
   + GET monitoring via `metrics`) + `serve(...)` (adaptateur `http.server`, pragma/intégration).
   API OPT-IN (token). GET `/health`, `/info` (version + identité node + config, pour la découverte),
-  `/metrics`, `/history` ; POST `/send/*`, `/admin`. `/info` reçoit un dict `info` statique
+  `/metrics` (+ compteurs traceroute si monitoring), `/history` (`?type=traceroute` → historique
+  traceroute) ; POST `/send/*`, `/admin`, `/traceroute` (validation dest/hop_limit/timeout ;
+  async 202 ou `wait:true` bloquant via `TracerouteReader`). `/info` reçoit un dict `info` statique
   (version+config) + fusionne l'identité node lue via `metrics.latest()` **et le statut
   onboarding** `broker`/`mqtt_proxy_ok`/`map_reporting` (CONTRACTS onboarding §3, consommé par
   weewx-mbg) — mêmes colonnes sonde, 0/1 SQLite → vrais booléens, `null` si monitoring off.
@@ -230,6 +257,12 @@ Les arguments CLI ne servent qu'en usage manuel/PoC et priment s'ils sont fourni
   par sonde) : le voisinage survit aux reconnexions (fini le sous-comptage post-restart) ; (c) 2ᵉ
   distance **`max_distance_hops_km`** (relayés) à côté de `max_distance_km` (direct). Contrat :
   `.agent-bus/CONTRACTS-portee.md §PORTÉE v2`.
+- **Traceroute** (fait) : endpoint **`POST /traceroute`** (async 202 / `wait:true` bloquant via
+  relecture SQLite) + **planificateur automatique** opt-in (`MBG_TRACEROUTE_ENABLED`, politiques
+  `static`/`staleness`, garde-fous airtime). Émission + corrélation **dans le worker** (interface BLE
+  vivante réutilisée → aucune coupure, pas de 2ᵉ client BLE). Résultat en MQTT (`MBG_TRACEROUTE_TOPIC`)
+  + SQLite (`/history?type=traceroute`) + compteurs `/metrics`. Voir `traceroute.py`,
+  `traceroute_scheduler.py`, `docs/traceroute.md`.
 - **V0.9** : transports alternatifs (USB-série / WiFi-TCP) si le matériel du node le permet.
 
 ## Conventions

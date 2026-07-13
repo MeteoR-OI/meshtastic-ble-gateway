@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import contextlib
 import csv
+import json
 import os
 import sqlite3
 import time
@@ -33,6 +34,7 @@ _EXPORT_TABLES: Tuple[Tuple[str, str], ...] = (
     ("node_metrics", "ts"),
     ("link_quality", "ts"),
     ("neighbor_registry", "last_heard"),
+    ("traceroute", "sent_epoch"),
 )
 
 _SCHEMA = """
@@ -47,7 +49,17 @@ CREATE TABLE IF NOT EXISTS neighbor_registry (
   node_id TEXT PRIMARY KEY, last_heard REAL, lat REAL, lon REAL, snr REAL, hops_away INTEGER
 );
 CREATE TABLE IF NOT EXISTS link_quality (ts REAL, reconnects INTEGER);
+CREATE TABLE IF NOT EXISTS traceroute (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  request_id INTEGER, dest TEXT NOT NULL, hop_limit INTEGER,
+  status TEXT NOT NULL,
+  sent_ts TEXT NOT NULL, recv_ts TEXT,
+  sent_epoch REAL, recv_epoch REAL,
+  rtt_ms INTEGER, hops_to INTEGER, hops_back INTEGER,
+  route_json TEXT, source TEXT
+);
 CREATE INDEX IF NOT EXISTS idx_node_ts ON node_metrics(ts);
+CREATE INDEX IF NOT EXISTS idx_traceroute_dest_ts ON traceroute(dest, sent_epoch);
 """
 
 # Colonnes ajoutées après coup (statut MQTT, onboarding) : `CREATE TABLE IF NOT EXISTS`
@@ -161,6 +173,119 @@ class MetricsStore:
         with self._conn(commit=True) as conn:
             conn.execute("INSERT INTO link_quality (ts,reconnects) VALUES (?,?)", (self._clock(), reconnects))
 
+    # --- Traceroute (endpoint + planificateur) ---
+    def record_traceroute(self, result: Dict[str, Any], sent_epoch: float, recv_epoch: Optional[float]) -> None:
+        """Écrit une ligne traceroute. `result` = dict A.5 (ISO pour l'affichage) ; `*_epoch` =
+        temps unix (comparaisons temporelles du planificateur). `route_json` sérialise les 2 legs."""
+        route_json = json.dumps(
+            {"route_to": result.get("route_to"), "route_back": result.get("route_back")}
+        )
+        with self._conn(commit=True) as conn:
+            conn.execute(
+                "INSERT INTO traceroute (request_id,dest,hop_limit,status,sent_ts,recv_ts,"
+                "sent_epoch,recv_epoch,rtt_ms,hops_to,hops_back,route_json,source) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    result.get("request_id"), result.get("dest"), result.get("hop_limit"),
+                    result.get("status"), result.get("sent_ts"), result.get("recv_ts"),
+                    sent_epoch, recv_epoch, result.get("rtt_ms"),
+                    result.get("hops_to"), result.get("hops_back"), route_json,
+                    result.get("source"),
+                ),
+            )
+
+    @staticmethod
+    def _traceroute_row(row: sqlite3.Row) -> Dict[str, Any]:
+        """Reconstruit le dict A.5 (route_to/route_back désérialisés) depuis une ligne SQLite."""
+        route = json.loads(row["route_json"]) if row["route_json"] else {}
+        return {
+            "type": "traceroute",
+            "dest": row["dest"],
+            "request_id": row["request_id"],
+            "status": row["status"],
+            "sent_ts": row["sent_ts"],
+            "recv_ts": row["recv_ts"],
+            "rtt_ms": row["rtt_ms"],
+            "hop_limit": row["hop_limit"],
+            "hops_to": row["hops_to"],
+            "hops_back": row["hops_back"],
+            "route_to": route.get("route_to"),
+            "route_back": route.get("route_back"),
+            "source": row["source"],
+        }
+
+    def traceroute_history(self, since: float = 0.0, limit: int = 100) -> List[Dict[str, Any]]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM traceroute WHERE sent_epoch>=? ORDER BY sent_epoch DESC LIMIT ?",
+                (since, limit),
+            ).fetchall()
+        return [self._traceroute_row(r) for r in rows]
+
+    def traceroute_by_request_id(self, request_id: int) -> Optional[Dict[str, Any]]:
+        """Dernière ligne (terminale) pour ce `request_id` — sert au mode `wait:true` de l'API."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM traceroute WHERE request_id=? ORDER BY sent_epoch DESC LIMIT 1",
+                (request_id,),
+            ).fetchone()
+        return self._traceroute_row(row) if row else None
+
+    def traceroute_last_sent(self) -> Optional[float]:
+        """Epoch du dernier traceroute émis (toutes sources) — garde-fou min-gap global."""
+        with self._conn() as conn:
+            row = conn.execute("SELECT max(sent_epoch) AS m FROM traceroute").fetchone()
+        return row["m"]
+
+    def traceroute_last_attempt_by_node(self, dest: str) -> Optional[float]:
+        """Epoch de la dernière tentative vers ce node (tout statut) — garde-fou min par nœud."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT max(sent_epoch) AS m FROM traceroute WHERE dest=?", (dest,)
+            ).fetchone()
+        return row["m"]
+
+    def traceroute_last_success_by_node(self) -> Dict[str, float]:
+        """`dest -> epoch du dernier traceroute réussi` (statut ok) — priorité de fraîcheur (staleness)."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT dest, max(sent_epoch) AS m FROM traceroute WHERE status='ok' GROUP BY dest"
+            ).fetchall()
+        return {r["dest"]: r["m"] for r in rows}
+
+    def traceroute_count_since(self, since_epoch: float, source_prefix: Optional[str] = None) -> int:
+        """Nb de traceroute émis depuis `since_epoch` (optionnellement filtrés `source LIKE prefix%`)
+        — sert au budget quotidien du planificateur."""
+        sql = "SELECT count(*) AS c FROM traceroute WHERE sent_epoch>=?"
+        params: List[Any] = [since_epoch]
+        if source_prefix is not None:
+            sql += " AND source LIKE ?"
+            params.append(source_prefix + "%")
+        with self._conn() as conn:
+            row = conn.execute(sql, params).fetchone()
+        return row["c"]
+
+    def traceroute_counters(self) -> Dict[str, Any]:
+        """Compteurs pour `/metrics` (cumulés depuis la base, survivent aux restarts)."""
+        with self._conn() as conn:
+            agg = conn.execute(
+                "SELECT count(*) AS sent,"
+                "sum(CASE WHEN status='ok' THEN 1 ELSE 0 END) AS ok,"
+                "sum(CASE WHEN status='timeout' THEN 1 ELSE 0 END) AS timeout,"
+                "sum(CASE WHEN status='error' THEN 1 ELSE 0 END) AS error "
+                "FROM traceroute"
+            ).fetchone()
+            last = conn.execute(
+                "SELECT rtt_ms FROM traceroute WHERE status='ok' ORDER BY sent_epoch DESC LIMIT 1"
+            ).fetchone()
+        return {
+            "traceroute_sent_total": agg["sent"] or 0,
+            "traceroute_ok_total": agg["ok"] or 0,
+            "traceroute_timeout_total": agg["timeout"] or 0,
+            "traceroute_error_total": agg["error"] or 0,
+            "traceroute_last_rtt_ms": last["rtt_ms"] if last else None,
+        }
+
     def latest(self) -> Dict[str, Any]:
         now = self._clock()
         with self._conn() as conn:
@@ -216,6 +341,8 @@ class MetricsStore:
         with self._conn(commit=True) as conn:
             for table in _TS_TABLES:
                 conn.execute("DELETE FROM %s WHERE ts < ?" % table, (cutoff,))
+            # traceroute : série temporelle aussi, mais ordonnée par sent_epoch (pas `ts`).
+            conn.execute("DELETE FROM traceroute WHERE sent_epoch < ?", (cutoff,))
 
     def export_csv(self, directory: str) -> None:
         os.makedirs(directory, exist_ok=True)

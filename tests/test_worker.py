@@ -34,7 +34,7 @@ def test_worker_body_runs_session_and_heartbeats():
     counter = FakeCounter()
     captured = {}
 
-    def fake_session(config, publisher_factory, nodelink_factory, heartbeat, should_continue, commands=None, monitor=None, tune=None):
+    def fake_session(config, publisher_factory, nodelink_factory, heartbeat, should_continue, commands=None, monitor=None, tune=None, traceroute_setup=None):
         captured["pub"] = publisher_factory()  # exerce publisher_factory
         captured["link"] = nodelink_factory("a", lambda m: None, lambda: None)  # et nodelink_factory
         captured["commands"] = commands
@@ -62,7 +62,7 @@ def test_worker_body_tunes_when_enabled():
     tuned = []
     captured = {}
 
-    def fake_session(config, pf, nf, hb, sc, commands=None, monitor=None, tune=None):
+    def fake_session(config, pf, nf, hb, sc, commands=None, monitor=None, tune=None, traceroute_setup=None):
         captured["tune"] = tune
         tune()  # la session déclenche le réglage une fois le lien établi
 
@@ -103,7 +103,7 @@ class MonLink:
 
 
 def _session_calling_monitor(link):
-    def session(config, pf, nf, hb, sc, commands=None, monitor=None, tune=None):
+    def session(config, pf, nf, hb, sc, commands=None, monitor=None, tune=None, traceroute_setup=None):
         monitor(link)
 
     return session
@@ -139,7 +139,7 @@ def test_worker_body_monitoring_force_telemetry():
 def test_worker_body_monitoring_off_no_store():
     calls = {"store": 0}
 
-    def session(config, pf, nf, hb, sc, commands=None, monitor=None, tune=None):
+    def session(config, pf, nf, hb, sc, commands=None, monitor=None, tune=None, traceroute_setup=None):
         assert monitor is None
 
     _worker_body(
