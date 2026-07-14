@@ -94,6 +94,6 @@ automatique** est opt-in (`MBG_TRACEROUTE_ENABLED`). Défauts conservateurs (par
 | `MBG_TRACEROUTE_MAX_CHANUTIL` | `40` | skip le tick si `channel_utilization` local dépasse (%) |
 | `MBG_TRACEROUTE_PRIORITY` | – | `staleness` : nœuds prioritaires (facultatif) |
 | `MBG_TRACEROUTE_TICK_S` | `300` | période d'évaluation du planificateur (s) |
-| `MBG_TRACEROUTE_TOPIC` | `mbg/traceroute` | topic MQTT de publication du résultat |
+| `MBG_TRACEROUTE_TOPIC` | `mbg/traceroute` | topic MQTT du résultat. ⚠️ broker MeshForge (ACL `msh/#`) : surcharger vers `msh/<région>/mbg/traceroute/!<nodeid>` sinon publish `Not authorized` (cf. [traceroute.md](traceroute.md)) |
 
 Détails, format du résultat et exemples `curl` : [traceroute.md](traceroute.md).

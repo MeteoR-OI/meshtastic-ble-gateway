@@ -79,6 +79,9 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
   `TracerouteCoordinator.on_packet`), corrélée par `requestId == id` **ET** `from == dest`, parsée
   (`decode_route` : chemin aller `[origin,*route,dest]` + retour si `snr_back`, SNR = firmware/4,
   sentinelle -128→None), puis **publiée MQTT** (topic `MBG_TRACEROUTE_TOPIC`) **+ écrite SQLite** ;
+  ⚠️ **broker MeshForge = ACL publish-only scopée `msh/#`** (vérifié prod `mqtt-mt.meteor-oi.re` :
+  `mbg/traceroute`→`Not authorized`, `msh/EU_868/mbg/…`→OK) → surcharger le topic vers
+  `msh/<région>/mbg/traceroute/!<nodeid>` (le rejet QoS 0 est silencieux ; SQLite/`/history` restent OK) ;
   un timer de repli produit un statut `timeout`. **Rien ne bloque le worker** : le mode `wait:true`
   de l'endpoint N'attend PAS côté worker (figerait le poll → SIGKILL) — l'API (superviseur) relit la
   ligne SQLite (WAL) via `api.TracerouteReader.wait`. Tout exécuté **dans le worker qui tient déjà le
