@@ -269,13 +269,14 @@ Les arguments CLI ne servent qu'en usage manuel/PoC et priment s'ils sont fourni
   par sonde) : le voisinage survit aux reconnexions (fini le sous-comptage post-restart) ; (c) 2ᵉ
   distance **`max_distance_hops_km`** (relayés) à côté de `max_distance_km` (direct). Contrat :
   `.agent-bus/CONTRACTS-portee.md §PORTÉE v2`.
-- **Traceroute** (fait) : endpoint **`POST /traceroute`** (async 202 / `wait:true` bloquant via
-  relecture SQLite) + **planificateur automatique** opt-in (`MBG_TRACEROUTE_ENABLED`, politiques
+- **V0.9** (fait) : **traceroute** — endpoint **`POST /traceroute`** (async 202 / `wait:true` bloquant
+  via relecture SQLite) + **planificateur automatique** opt-in (`MBG_TRACEROUTE_ENABLED`, politiques
   `static`/`staleness`, garde-fous airtime). Émission + corrélation **dans le worker** (interface BLE
   vivante réutilisée → aucune coupure, pas de 2ᵉ client BLE). Résultat en MQTT (`MBG_TRACEROUTE_TOPIC`)
-  + SQLite (`/history?type=traceroute`) + compteurs `/metrics`. Voir `traceroute.py`,
+  + SQLite (`/history?type=traceroute`) + compteurs `/metrics`. Inclut la **réconciliation BLE
+  pré-spawn** opt-in (`MBG_BLE_RECONCILE`) fiabilisant restart/respawn. Voir `traceroute.py`,
   `traceroute_scheduler.py`, `docs/traceroute.md`.
-- **V0.9** : transports alternatifs (USB-série / WiFi-TCP) si le matériel du node le permet.
+- **V0.10** : transports alternatifs (USB-série / WiFi-TCP) si le matériel du node le permet.
 
 ## Conventions
 

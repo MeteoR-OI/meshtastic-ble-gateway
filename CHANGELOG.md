@@ -4,6 +4,38 @@ Toutes les évolutions notables. Format inspiré de [Keep a Changelog](https://k
 versionnage [SemVer](https://semver.org/lang/fr/). Notes et artefacts détaillés :
 [Releases GitHub](https://github.com/MeteoR-OI/meshtastic-ble-gateway/releases).
 
+## [0.9.0] — 2026-07-14
+### Ajouté
+- **Traceroute** : endpoint **`POST /traceroute`** (async `202`, ou `wait:true` bloquant) qui trace
+  la route mesh vers un node — chemin **aller** (`[passerelle, *relais, dest]`) et **retour** si le
+  firmware distant le renseigne, avec le **SNR par saut** (firmware/4, sentinelle `-128` → `null`).
+  Émission + corrélation **dans le worker qui tient déjà le lien BLE** → aucune coupure, **pas de 2ᵉ
+  connexion BLE**. La réponse arrive dans la boucle de réception existante, corrélée par
+  `requestId` + `from` ; timeout de repli. Résultat **publié en MQTT** (`MBG_TRACEROUTE_TOPIC`) +
+  **écrit en SQLite** (`GET /history?type=traceroute`) + compteurs dans `GET /metrics`
+  (`traceroute_sent/ok/timeout/error_total`, `traceroute_last_rtt_ms`). Le mode `wait:true` relit la
+  ligne SQLite (base WAL) côté API — il **ne bloque jamais** la boucle du worker. Cf.
+  [docs/traceroute.md](docs/traceroute.md).
+- **Planificateur de traceroute automatiques** — **opt-in `MBG_TRACEROUTE_ENABLED`** (désactivé par
+  défaut). Politiques enfichables **`static`** (round-robin sur `MBG_TRACEROUTE_TARGETS`) et
+  **`staleness`** (défaut : le node entendu récemment au dernier traceroute réussi le plus ancien ;
+  jamais-tracé = priorité max). Garde-fous airtime : budget quotidien, intervalle min global (+
+  jitter), min par nœud, heures calmes, garde d'occupation canal, BLE down. État persistant en SQLite
+  (survit aux restarts). Variables `MBG_TRACEROUTE_*` documentées + exemples de drop-in par mode.
+- **Réconciliation BLE pré-spawn** — **opt-in `MBG_BLE_RECONCILE`**. Avant chaque spawn de worker, le
+  superviseur libère le node resté `Connected` dans bluez (ACL résiduel d'un worker SIGKILL, ou stop
+  mal fermé) → le node ré-émet ses advertisements → **reconnexion fiable au restart/respawn** (fin de
+  la « danse » de scans qui gèlent `connect_grace` s). **N'appaire/désappaire jamais** (réutilise le
+  node appairé) ; WARNING si `Trusted=yes` (auto-reconnexion bluez) ou présent-non-appairé.
+  `MBG_BLE_SETTLE` = délai de ré-émission après disconnect (défaut 3 s).
+
+### Note d'exploitation
+- Le topic MQTT par défaut **`mbg/traceroute` est rejeté par un broker MeshForge** (ACL du compte
+  station publish-only, scopée `msh/#` — vérifié sur `mqtt-mt.meteor-oi.re`). Surcharger
+  `MBG_TRACEROUTE_TOPIC` vers `msh/<région>/mbg/traceroute/!<nodeid>` (sans segment `/2/`, pour ne pas
+  être ingéré par MeshForge). Le rejet d'un publish QoS 0 est silencieux ; le résultat reste en
+  SQLite / `/history`.
+
 ## [0.8.2] — 2026-07-12
 ### Corrigé
 - **Voisins actifs** : les métriques de voisinage (`count`, `best_snr`, `max_distance_km`,
