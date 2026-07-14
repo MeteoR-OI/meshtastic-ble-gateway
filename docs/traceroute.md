@@ -136,6 +136,49 @@ chemin d'émission** que l'endpoint (`source = scheduler:<policy>`).
 `recent` et `adaptive` sont prévus comme points d'extension (registre `_POLICIES`) — à ajouter sans
 refactor.
 
+**Quel mode choisir ?** `staleness` (défaut) pour une station en exploitation : il couvre
+automatiquement les nodes réellement entendus, en priorisant ceux qu'on n'a pas tracés depuis
+longtemps → carte fraîche sans liste à maintenir. `static` pour un banc / un diagnostic ciblé : tu
+imposes exactement les nodes à tracer (liste `MBG_TRACEROUTE_TARGETS` **obligatoire**), en rotation.
+
+### Configurer (drop-in systemd)
+
+L'activation se fait par variables d'env dans un **drop-in** de l'unité (le service lance
+`python -m mbg` sans argument → tout vient de l'ENV). Créer/éditer
+`/etc/systemd/system/mbg.service.d/traceroute.conf` puis `sudo systemctl daemon-reload && sudo
+systemctl restart mbg`.
+
+**Mode `staleness` (recommandé, budget bas pour démarrer)** :
+```ini
+[Service]
+Environment=MBG_TRACEROUTE_ENABLED=true
+Environment=MBG_TRACEROUTE_POLICY=staleness
+Environment=MBG_TRACEROUTE_DAILY_BUDGET=4
+# topic MQTT dans le namespace autorisé par le broker (cf. encadré ACL plus haut) :
+Environment=MBG_TRACEROUTE_TOPIC=msh/EU_868/mbg/traceroute/!534bbea5
+```
+
+**Mode `static` (cibles imposées)** :
+```ini
+[Service]
+Environment=MBG_TRACEROUTE_ENABLED=true
+Environment=MBG_TRACEROUTE_POLICY=static
+Environment=MBG_TRACEROUTE_TARGETS=!6984ddb0,!d1062139
+Environment=MBG_TRACEROUTE_DAILY_BUDGET=6
+Environment=MBG_TRACEROUTE_TOPIC=msh/EU_868/mbg/traceroute/!534bbea5
+```
+
+**Désactiver le planificateur (endpoint manuel seul)** : retirer/mettre `MBG_TRACEROUTE_ENABLED=false`
+— `POST /traceroute` reste disponible tant que l'API a un token.
+
+Vérifier l'application : `systemctl show mbg -p Environment` puis, après un tick, la présence de
+lignes `source: scheduler:<policy>` dans `GET /history?type=traceroute`.
+
+> **Cadence réelle vs budget.** Le min-gap est élargi par un *jitter* aléatoire : l'écart effectif
+> entre deux traceroute est `MBG_TRACEROUTE_MIN_GAP_S × [1, 2)` (anti heure-ronde). Avec les défauts
+> (min-gap 15 min → 15–30 min effectifs) et la fenêtre active, le nombre réel de traceroute/jour peut
+> être **inférieur** au budget : le budget est un **plafond**, pas une cible.
+
 ### Garde-fous (toutes politiques)
 
 - **Intervalle min global** `MBG_TRACEROUTE_MIN_GAP_S` (+ un *jitter* aléatoire borné pour ne pas
