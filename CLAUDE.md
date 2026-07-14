@@ -57,6 +57,15 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
   respawn ne le retrouve pas (boucle ∞, churn observé en prod). Le teardown doit venir du
   superviseur ; défaut = `bluetoothctl disconnect <MAC>` **borné par `timeout` subprocess** (ne
   gèle jamais le superviseur ; plus sûr qu'un D-Bus in-process). Seam `disconnect` injectable.
+  **Réconciliation BLE pré-spawn (opt-in `ble_reconcile`)** : `_kill` ne couvre PAS le 1er spawn
+  après `systemctl start` ni un drop resté `Connected` sans kill → le worker scanne un node qui
+  n'émet plus, gèle `connect_grace` s, se fait tuer, puis le respawn accroche (dance laborieuse au
+  restart). Si activé, `_reconcile_ble()` lit l'état bluez du node (`_default_ble_status` via
+  `bluetoothctl info`, seam injectable) **avant chaque spawn** et force `disconnect`+settle s'il est
+  encore `Connected` (le node ré-émet → scan rapide). N'appaire/désappaire JAMAIS (réutilise le node
+  appairé). Loggue un WARNING si `Trusted=yes` (bluez auto-reconnecte) ou si présent-mais-non-appairé.
+  Le stop reste un disconnect propre (via `_stop_worker`→`_kill`) ; côté « gel au démarrage », la
+  réconciliation supprime la cause (node stuck-Connected) → plus de session qui gèle au scan initial.
 - `systemd_notify.py` — `sd_notify` (watchdog, sans dépendance).
 - `control.py` — `execute_command(iface, command)` : traduit une commande (text/telemetry/
   position/request_position/admin) en appel meshtastic. Ne lève jamais. Whitelist admin

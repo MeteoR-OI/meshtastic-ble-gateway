@@ -28,6 +28,27 @@ Spawn = Callable[[Config], object]  # (config) -> WorkerHandle (beats/is_alive/k
 Notify = Callable[[str], bool]
 Serve = Callable[[Callable, Callable], None]  # (submit, should_run) -> bloque jusqu'à should_run False
 Disconnect = Callable[[str], None]  # (mac) -> force bluez à lâcher l'ACL du node
+BleStatus = Callable[[str], Dict[str, bool]]  # (mac) -> {connected, paired, trusted, present}
+
+
+def _default_ble_status(mac: str) -> Dict[str, bool]:  # pragma: no cover — frontière subprocess/OS
+    """État bluez du node via `bluetoothctl info` (borné en temps, ne lève jamais).
+
+    Sert à la réconciliation pré-spawn : ne toucher au lien que si le node est encore `Connected`
+    (ACL résiduel d'un worker SIGKILL). `present` = le node est connu de bluez (appairé/en cache)."""
+    try:
+        out = subprocess.run(
+            ["bluetoothctl", "info", mac], timeout=10,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False,
+        ).stdout.decode(errors="replace")
+    except Exception:  # noqa: BLE001 — best-effort ; jamais bloquant ni levant
+        return {}
+    return {
+        "connected": "Connected: yes" in out,
+        "paired": "Paired: yes" in out,
+        "trusted": "Trusted: yes" in out,
+        "present": "Paired:" in out or "Connected:" in out,
+    }
 
 
 def _default_disconnect(mac: str) -> None:  # pragma: no cover — frontière subprocess/OS
@@ -74,6 +95,7 @@ class Supervisor:
         serve: Optional[Serve] = None,
         store=None,
         disconnect: Disconnect = _default_disconnect,
+        ble_status: BleStatus = _default_ble_status,
     ) -> None:
         self._config = config
         self._spawn = spawn
@@ -83,6 +105,7 @@ class Supervisor:
         self._serve = serve
         self._store = store
         self._disconnect = disconnect
+        self._ble_status = ble_status
         self._lock = threading.Lock()
         self._current = None  # worker courant, exposé à l'API
         self._tier: Optional[Tier] = None  # palier courant (état pour l'hystérésis)
@@ -159,6 +182,7 @@ class Supervisor:
             while should_continue():
                 tier = self._plan_tier()
                 announce = self._config.battery_tiers and tier != self._announced_tier
+                self._reconcile_ble()  # état bluez propre AVANT le scan du worker (opt-in)
                 worker = self._spawn(self._effective_config(tier, announce))
                 self._set_current(worker)
                 on_window = self._config.duty_on if tier.duty_cycle else None
@@ -214,6 +238,26 @@ class Supervisor:
                     self._kill(worker)
                     return beats > 0
         return worker.beats() > 0  # arrêt demandé
+
+    def _reconcile_ble(self) -> None:
+        """Avant de spawner : garantit un état bluez propre pour que le scan du worker aboutisse.
+
+        Opt-in (`ble_reconcile`). N'appaire/ne désappaire JAMAIS — on réutilise le node déjà appairé.
+        Si le node est encore `Connected` (ACL résiduel d'un worker SIGKILL, ou reliquat d'un stop
+        mal fermé), on force un `disconnect` : le node ré-émet ses advertisements → le scan le retrouve
+        vite au lieu de geler `connect_grace` s puis d'échouer. Ne lève jamais (frontières bornées)."""
+        if not self._config.ble_reconcile:
+            return
+        mac = self._config.ble_address
+        status = self._ble_status(mac)
+        if status.get("trusted"):
+            log.warning("BLE %s Trusted=yes → bluez peut auto-reconnecter (le node cesse d'émettre) ; `bluetoothctl untrust %s`", mac, mac)
+        if status.get("present") and not status.get("paired"):
+            log.warning("BLE %s présent mais non appairé → appairage manuel requis (mbg n'appaire pas)", mac)
+        if status.get("connected"):
+            log.info("BLE %s encore Connected avant spawn → disconnect + settle %ss (le node doit ré-émettre)", mac, self._config.ble_settle)
+            self._disconnect(mac)
+            self._sleep(self._config.ble_settle)
 
     def _kill(self, worker) -> None:
         """SIGKILL + join, PUIS force bluez à lâcher l'ACL (le worker gelé ne se nettoie pas)."""

@@ -72,6 +72,8 @@ Détails : [battery-tiers.md](battery-tiers.md).
 | Variable | Défaut | Rôle |
 |---|---|---|
 | `MBG_BLE_SUPERVISION_TIMEOUT_MS` | `0` | `>0` (ex. `6000`) = supervision timeout (ms) imposé au lien via `hcitool lecup` à chaque session. **Nécessite `CAP_NET_ADMIN`+`CAP_NET_RAW` + `hcitool`** |
+| `MBG_BLE_RECONCILE` | – | `true` = réconciliation bluez **avant chaque spawn** de worker : si le node est resté `Connected` (ACL résiduel d'un worker SIGKILL / stop mal fermé), force un `disconnect` pour qu'il ré-émette → scan rapide au lieu de geler `connect_grace` s. N'appaire/désappaire jamais. **Recommandé sur RPi** (fiabilise restart/respawn). Nécessite `bluetoothctl` dans le PATH |
+| `MBG_BLE_SETTLE` | `3` | délai (s) après un `disconnect` de réconciliation, le temps que le node ré-émette ses advertisements |
 
 Détails et prérequis capabilities : [resilience.md](resilience.md#stabilisation-du-lien-ble-signal-faible).
 

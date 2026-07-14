@@ -60,6 +60,12 @@ class Config:
     # 0 = off. >0 = supervision timeout (ms) imposé au lien via `hcitool lecup` à chaque
     # session (contourne le bug BlueZ #717 sur lien faible ; cf. link_tuner).
     ble_supervision_timeout_ms: int = 0
+    # Réconciliation BLE avant chaque spawn de worker (opt-in). Sur restart/respawn, un worker
+    # SIGKILL laisse le node `Connected: yes` dans bluez → il cesse d'émettre → le scan gèle 45 s
+    # puis échoue. Si activé : le superviseur lit l'état bluez du node AVANT de spawner et force un
+    # `disconnect` s'il est encore Connected (le node ré-émet → scan rapide), sans jamais ré-appairer.
+    ble_reconcile: bool = False  # active la réconciliation pré-spawn (recommandé sur RPi)
+    ble_settle: float = 3.0  # délai (s) après un disconnect pré-spawn, le temps que le node ré-émette
     # Traceroute (endpoint /traceroute + planificateur auto). Cf. traceroute.py / traceroute_scheduler.py.
     # L'ENDPOINT est dispo dès que l'API a un token (coordinateur monté dans le worker) ;
     # le PLANIFICATEUR est opt-in via `traceroute_enabled` (défaut off). Parcimonie airtime :
@@ -116,6 +122,8 @@ class Config:
             duty_off=float(src.get("MBG_DUTY_OFF", "1800")),
             tier_hysteresis=float(src.get("MBG_TIER_HYSTERESIS", "3")),
             ble_supervision_timeout_ms=int(src.get("MBG_BLE_SUPERVISION_TIMEOUT_MS", "0")),
+            ble_reconcile=_is_true(src.get("MBG_BLE_RECONCILE")),
+            ble_settle=float(src.get("MBG_BLE_SETTLE", "3")),
             traceroute_enabled=_is_true(src.get("MBG_TRACEROUTE_ENABLED")),
             traceroute_policy=src.get("MBG_TRACEROUTE_POLICY", "staleness"),
             traceroute_daily_budget=int(src.get("MBG_TRACEROUTE_DAILY_BUDGET", "6")),
