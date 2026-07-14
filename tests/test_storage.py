@@ -31,26 +31,51 @@ def test_record_and_latest_mqtt_status(tmp_path):
     assert node["mqtt_proxy_ok"] == 1 and node["mqtt_map_reporting"] == 0  # bool -> 0/1 SQLite
 
 
+# Schéma node_metrics de la toute 1re release (0.3/0.4/0.6.x) : AUCUNE des colonnes ajoutées
+# ensuite (node_id, node_name, mqtt_*, max_distance_km). Reproduit la base de CHAR645/MHA235.
+_LEGACY_0_6 = (
+    "CREATE TABLE node_metrics (ts REAL, battery_level INTEGER, voltage REAL,"
+    " channel_util REAL, air_util_tx REAL, uptime INTEGER, lat REAL, lon REAL, altitude INTEGER)"
+)
+
+
 def test_migrates_legacy_db(tmp_path):
-    # Base créée AVANT les colonnes MQTT (schéma v0.7) : l'init doit les ajouter
-    # (CREATE TABLE IF NOT EXISTS n'ajoute jamais de colonne).
+    # Base 0.6.x SANS node_id/node_name/mqtt_*/max_distance_km : l'init doit TOUTES les ajouter
+    # (CREATE TABLE IF NOT EXISTS n'ajoute jamais de colonne). Régression du crash-loop v0.9.0
+    # `table node_metrics has no column named node_id` (CHAR645).
     path = str(tmp_path / "legacy.db")
     conn = sqlite3.connect(path)
-    conn.execute(
-        "CREATE TABLE node_metrics (ts REAL, battery_level INTEGER, voltage REAL,"
-        " channel_util REAL, air_util_tx REAL, uptime INTEGER, lat REAL, lon REAL,"
-        " altitude INTEGER, node_id TEXT, node_name TEXT)"
-    )
+    conn.execute(_LEGACY_0_6)
     conn.execute("INSERT INTO node_metrics (ts, battery_level) VALUES (1.0, 42)")
     conn.commit()
     conn.close()
     store = MetricsStore(path)
-    store.record_node({"battery_level": 50, "mqtt_broker": "b", "mqtt_proxy_ok": True})
+    # colonnes toutes migrées
+    with store._conn() as c:
+        cols = {r["name"] for r in c.execute("PRAGMA table_info(node_metrics)")}
+    assert {"node_id", "node_name", "mqtt_broker", "max_distance_km"} <= cols
+    # record_node avec node_id/node_name RÉUSSIT (le chemin qui crashait en 0.9.0)
+    store.record_node(
+        {"battery_level": 50, "node_id": "!abcd", "node_name": "Nd", "mqtt_broker": "b", "mqtt_proxy_ok": True}
+    )
     node = store.latest()["node"]
-    assert node["battery_level"] == 50 and node["mqtt_broker"] == "b"
+    assert node["node_id"] == "!abcd" and node["node_name"] == "Nd" and node["mqtt_broker"] == "b"
     # l'ancienne ligne survit, colonnes migrées à NULL
     first = store.history()[-1]
-    assert first["battery_level"] == 42 and first["mqtt_broker"] is None
+    assert first["battery_level"] == 42 and first["node_id"] is None and first["mqtt_broker"] is None
+
+
+def test_migration_idempotent_on_migrated_db(tmp_path):
+    # Ré-ouvrir une base déjà migrée ne doit ni échouer ni re-ajouter de colonne.
+    path = str(tmp_path / "legacy.db")
+    conn = sqlite3.connect(path)
+    conn.execute(_LEGACY_0_6)
+    conn.commit()
+    conn.close()
+    MetricsStore(path)  # 1re migration
+    store2 = MetricsStore(path)  # 2e ouverture : PRAGMA voit les colonnes -> aucun ALTER, pas d'erreur
+    store2.record_node({"battery_level": 1, "node_id": "!aa"})
+    assert store2.latest()["node"]["node_id"] == "!aa"
 
 
 def test_seeds_registry_from_legacy_neighbors(tmp_path):

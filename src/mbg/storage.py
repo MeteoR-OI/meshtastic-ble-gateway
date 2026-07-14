@@ -62,9 +62,15 @@ CREATE INDEX IF NOT EXISTS idx_node_ts ON node_metrics(ts);
 CREATE INDEX IF NOT EXISTS idx_traceroute_dest_ts ON traceroute(dest, sent_epoch);
 """
 
-# Colonnes ajoutées après coup (statut MQTT, onboarding) : `CREATE TABLE IF NOT EXISTS`
-# n'ajoute jamais de colonne, les bases déjà en prod doivent être migrées à l'init.
+# Colonnes ajoutées à node_metrics APRÈS la 1re release : `CREATE TABLE IF NOT EXISTS` n'ajoute
+# jamais de colonne, les bases déjà en prod (créées en 0.3/0.4/0.6) doivent être migrées à l'init.
+# ⚠️ TOUTE colonne ajoutée à `_SCHEMA` après coup DOIT figurer ici, sinon crash `no column named …`
+# sur base pré-existante (bug v0.9.0 : `node_id`/`node_name`, présents dans _SCHEMA depuis v0.7 mais
+# jamais migrés → crash-loop du worker sur les bases 0.6.x — CHAR645/MHA235). L'ordre est indifférent
+# (chaque ADD COLUMN est indépendant, gardé par le PRAGMA table_info).
 _MIGRATIONS = (
+    ("node_metrics", "node_id", "TEXT"),  # ajoutée en v0.7 (identité node) — migration manquante <v0.9.1
+    ("node_metrics", "node_name", "TEXT"),
     ("node_metrics", "mqtt_broker", "TEXT"),
     ("node_metrics", "mqtt_proxy_ok", "INTEGER"),
     ("node_metrics", "mqtt_map_reporting", "INTEGER"),

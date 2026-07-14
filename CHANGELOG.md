@@ -4,6 +4,19 @@ Toutes les évolutions notables. Format inspiré de [Keep a Changelog](https://k
 versionnage [SemVer](https://semver.org/lang/fr/). Notes et artefacts détaillés :
 [Releases GitHub](https://github.com/MeteoR-OI/meshtastic-ble-gateway/releases).
 
+## [0.9.1] — 2026-07-14
+### Corrigé
+- **Migration `node_metrics` manquante → crash-loop sur bases pré-existantes.** Les colonnes
+  `node_id` / `node_name` (ajoutées à `_SCHEMA` en v0.7) n'étaient **pas** dans `_MIGRATIONS` : sur une
+  base créée avant v0.7 (0.3/0.4/0.6.x — ex. **CHAR645**, MHA235), `CREATE TABLE IF NOT EXISTS` ne les
+  ajoute jamais → `record_node` échoue (`table node_metrics has no column named node_id`) → **worker en
+  crash-loop (~5 s)**. Effet de bord grave : à chaque respawn le planificateur re-tire un traceroute
+  (le min-gap ne « voit » pas les envois d'un worker qui crashe avant la persistance du résultat) →
+  **inondation traceroute du mesh**. Les deux colonnes sont désormais migrées à l'init (`ALTER TABLE`,
+  idempotent, non destructif) → toute base existante se répare **seule au démarrage**, sans écriture
+  manuelle. Audit effectué : aucune autre table de `_SCHEMA` ne présentait cet écart (tables
+  `neighbor_registry`/`traceroute` créées à neuf, `link_quality` inchangée).
+
 ## [0.9.0] — 2026-07-14
 ### Ajouté
 - **Traceroute** : endpoint **`POST /traceroute`** (async `202`, ou `wait:true` bloquant) qui trace
