@@ -84,11 +84,20 @@ def _worker_body(
         store = store_cls(config.db_path)
 
     monitor = None
+    flush = None
     if config.monitor_interval > 0:
         # Fenêtre "voisin actif" (V0.8.2) : constante par session (dépend de la config).
         active_window = metrics_mod.resolve_active_window(
             config.monitor_interval, config.neighbor_active_secs
         )
+
+        def flush(link):
+            """Vide les compteurs de paquets vers la base (RAM + INSERT ; aucune I/O BLE).
+
+            Passé aussi à la session, qui l'appelle au décrochage — sans quoi une session plus
+            courte que `monitor_interval` perdrait tous ses comptages (cf. session).
+            """
+            store.record_packets(link.drain_packet_counts())
 
         def monitor(link):
             if config.force_telemetry:
@@ -99,6 +108,10 @@ def _worker_body(
             store.record_node(data["node"], data["position"])
             # Merge dans le registre persistant (survit aux reconnexions ; PORTÉE v2).
             store.upsert_neighbors(data["neighbors"])
+            # Noms affichables (bloc `nodes` de /packets) : NodeDB déjà lue, aucune op BLE en plus.
+            store.upsert_node_names(data["node_names"])
+            # Compteurs de paquets : hérite gratuitement de l'early-sample + de la cadence.
+            flush(link)
 
     # Stabilisation du lien BLE (V0.5) : opt-in via ble_supervision_timeout_ms > 0.
     tune = None
@@ -133,7 +146,8 @@ def _worker_body(
     try:
         session(
             config, publisher_factory, nodelink_factory, heartbeat, lambda: True,
-            commands=commands, monitor=monitor, tune=tune, traceroute_setup=traceroute_setup,
+            commands=commands, monitor=monitor, flush=flush, tune=tune,
+            traceroute_setup=traceroute_setup,
         )
     except Exception as exc:  # noqa: BLE001 — toute panne = fin de session, le parent respawn
         log.warning("session worker interrompue : %s", exc)

@@ -34,6 +34,7 @@ def run_one_session(
     sleep: Callable[[float], None] = time.sleep,
     commands=None,
     monitor: Optional[Callable[[object], None]] = None,
+    flush: Optional[Callable[[object], None]] = None,
     tune: Optional[Callable[[], None]] = None,
     traceroute_setup: Optional[Callable[[object, object], tuple]] = None,
 ) -> int:
@@ -45,6 +46,9 @@ def run_one_session(
 
     `tune` (optionnel, V0.5) : appelé UNE fois dès le lien établi pour stabiliser le BLE
     (supervision timeout via `hcitool lecup`). Ne lève jamais (voir link_tuner).
+
+    `flush` (optionnel) : vide les compteurs de paquets vers la base. Appelé à la SORTIE de
+    session (lien perdu), en plus de la cadence `monitor` — voir le commentaire en fin de boucle.
     """
     publisher = publisher_factory()
     publisher.connect()
@@ -96,5 +100,17 @@ def run_one_session(
             poll_count += 1
         heartbeat()
         sleep(config.poll_interval)
+    # Dernier flush des compteurs de paquets encore en RAM. INDISPENSABLE : `monitor` ne relève
+    # qu'une fois tôt (dict vide) puis à `monitor_interval` ; sur lien instable (sessions plus
+    # courtes que l'intervalle) le tic périodique NE TOMBE JAMAIS et tous les comptages de la
+    # session partiraient avec le `os._exit` du worker — le bug terrain du 2026-07-08, qui avait
+    # laissé `node_metrics` vide, rejoué pour packet_counts.
+    # Sûr ici bien que le lien soit mort : le drain est RAM + INSERT SQLite, sans I/O BLE (à la
+    # différence de `monitor(link)`, qui lit le node et peut geler → à ne surtout pas rejouer).
+    if flush is not None:
+        try:
+            flush(link)
+        except Exception as exc:  # noqa: BLE001 — jamais bloquer la sortie de session/le respawn
+            log.warning("flush des compteurs de paquets ignoré : %s", exc)
     log.info("session terminée (%d relayés, %d erreurs)", proxy.forwarded, proxy.errors)
     return proxy.forwarded
