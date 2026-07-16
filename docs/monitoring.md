@@ -100,11 +100,25 @@ curl -H "X-API-Token: $TOKEN" "$BASE/packets?since=$(( $(date +%s) - 86400 ))&bi
   si `bin` sort des bornes.
 
 **L'agrégation est faite en SQL** (`GROUP BY` sur `idx_packets_ts`), jamais en Python : le client
-ne reçoit jamais de lignes brutes. Mesuré sur une base à l'équilibre (201 600 lignes = 35 j × 288
-flushes/j × 20 nœuds, **7,9 Mo**) : fenêtre 24 h/`bin=900` → **1 940 lignes en ~4 ms** ; fenêtre
-30 j/`bin=10800` → **4 820 lignes (~155 ko JSON) en ~80 ms** ; pire cas `since=0&bin=300` (les
-201 600 lignes agrégées) → **~265 ms**. Sans re-binning SQL, la même fenêtre mois transférerait
-~170 k lignes.
+ne reçoit jamais de lignes brutes — sans re-binning SQL, une fenêtre mois en transférerait ~170 k.
+
+**Perf mesurée sur Raspberry Pi (ARM, PAM289)**, base saturée à 35 j × 288 tranches/jour :
+
+| Nœuds | Lignes | `.db` | `day` (24 h, `bin=900`) | `month` (30 j, `bin=10800`) |
+|---|---|---|---|---|
+| **6** (mesh réel de la station) | 60 480 | 2,8 Mo | **11 ms** | **275 ms** |
+| 12 | 120 960 | 5,7 Mo | 22 ms | 579 ms |
+| 20 | 201 600 | 9,6 Mo | 38 ms | 1 003 ms |
+
+La montée est **linéaire** en nombre de nœuds. `day` (l'appel de régime, à chaque cycle de report)
+reste **deux ordres de grandeur** sous sa cible de 300 ms. `month` ne tourne qu'**1×/jour** et
+n'atteint la seconde que vers **~20 nœuds** — c'est le seuil à surveiller si le mesh grossit ; le
+recours connu est d'abaisser le Top-N ou de le porter dans le SQL.
+
+> **Index couvrant : testé et rejeté** — un `idx(ts, node_id, count)` ne gagne que ~7 % (999 →
+> 927 ms à 20 nœuds) pour **+60 % de disque** (9,6 → 15,4 Mo). Le plan bascule bien en *covering
+> index*, mais le coût est le `GROUP BY` + tri, pas la lecture des lignes. `idx_packets_ts` seul
+> est le bon compromis : ne pas « optimiser » ce point.
 
 ### Rétention : plafond dur de 35 jours
 

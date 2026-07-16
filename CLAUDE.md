@@ -140,8 +140,14 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
   `prune()` » n'aurait JAMAIS tourné en prod (le thread démarre maintenant dès qu'un store existe).
   `prune_packets` ne touche QUE `packet_counts` (purger les autres à 35 j = perte silencieuse pour
   qui a choisi 0) ; `packet_counts` est tout de même dans `_TS_TABLES` (35 j = plafond, pas
-  plancher). `node_names` jamais purgée. Perf mesurée (201 600 lignes, 7,9 Mo) : `day` ~4 ms,
-  `month` ~80 ms, pire cas ~265 ms. Voir `docs/monitoring.md`.
+  plancher). `node_names` jamais purgée. **Perf mesurée sur ARM (PAM289)**, base saturée 35 j :
+  6 nœuds (mesh réel) = 60 480 lignes/2,8 Mo → `day` 11 ms, `month` 275 ms ; 20 nœuds = 201 600
+  lignes/9,6 Mo → `day` 38 ms, `month` 1 003 ms. Montée **linéaire** en nb de nœuds ; `day` (appel
+  de régime) reste 2 ordres de grandeur sous sa cible 300 ms, `month` (1×/jour) n'atteint la
+  seconde que vers **~20 nœuds** = le seuil à surveiller si le mesh grossit (recours : baisser le
+  Top-N ou le porter en SQL). ⚠️ **Index couvrant `idx(ts,node_id,count)` : testé et REJETÉ** —
+  +7 % de vitesse pour +60 % de disque (le coût est le `GROUP BY`/tri, pas la lecture de ligne) ;
+  `idx_packets_ts` seul est le bon compromis, ne pas « optimiser ». Voir `docs/monitoring.md`.
 - **API : TOUTES les routes sont authentifiées, `GET` compris.** `handle_request` appelle
   `_authorized` **avant** le dispatch de méthode ⇒ `/health`, `/info`, `/metrics`, `/history`,
   `/packets` renvoient `401` sans `X-API-Token` ; et l'API n'existe QUE si `api_token` est posé
