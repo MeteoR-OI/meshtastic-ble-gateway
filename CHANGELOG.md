@@ -4,6 +4,45 @@ Toutes les évolutions notables. Format inspiré de [Keep a Changelog](https://k
 versionnage [SemVer](https://semver.org/lang/fr/). Notes et artefacts détaillés :
 [Releases GitHub](https://github.com/MeteoR-OI/meshtastic-ble-gateway/releases).
 
+## [Non publié]
+### Ajouté
+- **Histogramme « paquets reçus par nœud, par tranche »** : nouvel endpoint **`GET /packets`**
+  (`?since=<epoch_s>&bin=<sec>`, `bin` ∈ [60, 86400], défaut 300, réfléchi dans la réponse) qui
+  renvoie `{bin, nodes, rows}` — `rows` = `[bin_start, node_id, count]` triées par `bin_start`,
+  une tranche sans paquet n'ayant **pas** de ligne (le remplissage à `0` est la charge du
+  consommateur) ; `nodes` = `node_id → nom affichable` (`short_name || long_name || node_id`,
+  jamais `null`), limité aux nœuds présents dans `rows`. **Nécessite le monitoring** (sinon `404
+  monitoring désactivé`, comme `/metrics`) ; **authentifié** comme toutes les routes.
+  Chaque paquet entrant est compté **avant** le filtre de portnum (tous portnums confondus) dans
+  `_handler_receive`, sous verrou dédié, **sans I/O et sans jamais lever** (chemin radio) ; un
+  paquet sans émetteur exploitable n'est pas compté (pas de nœud fantôme `!00000000`). Les
+  compteurs sont vidés en base à la cadence du monitoring **et au décrochage du lien** — sans ce
+  second flush, toute session plus courte que `MBG_MONITOR_INTERVAL` perdrait ses comptages (même
+  classe de bug que le `node_metrics` vide de 2026-07-08). L'**agrégation est faite en SQL**
+  (`GROUP BY` sur `idx_packets_ts`), jamais en Python : ~4 800 lignes servies au lieu de ~170 k sur
+  une fenêtre mois. Deux tables neuves : `packet_counts` (série temporelle) et `node_names`
+  (identité dédiée — `neighbor_registry` ne convient pas : il ne contient que les voisins actifs à
+  `hopsAway` connu, donc n'est pas un sur-ensemble des nœuds comptés). Cf.
+  [monitoring.md](docs/monitoring.md#paquets-reçus-par-nœud-get-packets).
+- **Rétention propre à `packet_counts` : plafond dur de 35 jours**, appliqué **même quand
+  `MBG_RETENTION_DAYS=0`** (le défaut = « ne rien purger ») — une série temporelle qui ne se purge
+  jamais est une fuite lente (~5 800 lignes/jour, ~200 k lignes à l'équilibre). `prune_packets()`
+  ne touche **que** `packet_counts` : les autres tables restent gouvernées par
+  `MBG_RETENTION_DAYS` seul (aucune purge par effet de bord pour une station qui a choisi de tout
+  garder). `MBG_RETENTION_DAYS` inférieur à 35 j s'applique aussi aux paquets : 35 j est un
+  plafond, pas un plancher. Le thread de maintenance démarre désormais **dès qu'un store existe** —
+  auparavant il ne démarrait pas sans `MBG_DUMP_DIR` ni `MBG_RETENTION_DAYS`, donc aucune purge
+  n'aurait tourné en configuration par défaut.
+
+### Documentation
+- **Toutes les routes de l'API exigent le token, `GET` compris** (`/health`, `/info`, `/metrics`,
+  `/history`, `/packets` → `401` sans en-tête) : `handle_request` vérifie l'autorisation **avant**
+  de dispatcher la méthode, et l'API n'existe que si `MBG_API_TOKEN` est défini. Le point n'était
+  pas documenté et se croyait volontiers « POST-only ». Piège de test associé, désormais consigné :
+  une assertion d'auth écrite avec un token **vide** passe à vide (`hmac.compare_digest("", "")`
+  est vrai) — toute assertion d'authentification doit utiliser un token **non vide**. Cf.
+  [api.md](docs/api.md#activation--sécurité).
+
 ## [0.9.1] — 2026-07-14
 ### Corrigé
 - **Migration `node_metrics` manquante → crash-loop sur bases pré-existantes.** Les colonnes
