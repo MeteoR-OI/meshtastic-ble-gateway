@@ -5,7 +5,8 @@
 `handle_request` est **pur** (auth token + routage + validation) → testable à
 100 %. `serve` est l'adaptateur socket/thread (frontière OS, testé en intégration).
 Auth par en-tête `X-API-Token`. Routes : POST /send/text, /send/telemetry,
-/send/position, /request/position, /admin ; GET /health, /info, /metrics, /history. Les
+/send/position, /request/position, /admin ; GET /health, /info, /metrics, /history,
+/packets (histogramme paquets par nœud). Les
 commandes POST sont relayées au worker via `dispatch` (déjà borné en
 timeout) qui renvoie `{"ok": bool, ...}`.
 """
@@ -18,6 +19,7 @@ import time
 from typing import Any, Callable, Dict, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
+from . import storage
 from .traceroute import normalize_dest
 
 log = logging.getLogger("mbg.api")
@@ -178,6 +180,19 @@ def _handle_get(route: str, query: str, metrics, info, traceroute) -> Tuple[int,
         except ValueError:
             return 400, {"ok": False, "error": "paramètres invalides"}
         return 200, {"rows": traceroute.history(since, limit)}
+    # /packets : histogramme « paquets par nœud, par tranche » (contrat A). Non authentifié
+    # comme /metrics et /info (le token ne garde que les POST). Agrégation faite en SQL.
+    if route == "/packets":
+        if metrics is None:  # miroir exact du 404 de /metrics
+            return 404, {"ok": False, "error": "monitoring désactivé"}
+        try:
+            since = float(params.get("since", ["0"])[0])
+            bin_seconds = int(params.get("bin", [str(storage.PACKET_BIN_DEFAULT)])[0])
+        except ValueError:
+            return 400, {"ok": False, "error": "paramètres invalides"}
+        if not (storage.PACKET_BIN_MIN <= bin_seconds <= storage.PACKET_BIN_MAX):
+            return 400, {"ok": False, "error": "paramètres invalides"}
+        return 200, metrics.packet_history(since, bin_seconds)
     if route in ("/metrics", "/history"):
         if metrics is None:
             return 404, {"ok": False, "error": "monitoring désactivé"}

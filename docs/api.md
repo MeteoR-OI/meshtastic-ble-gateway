@@ -13,6 +13,15 @@ Activée **uniquement si `MBG_API_TOKEN` est défini**. Auth par en-tête `X-API
 Sécurité v1 : token + bind LAN/VPN (`MBG_API_HOST=127.0.0.1` pour du localhost strict). Voir
 [configuration.md](configuration.md#api-de-contrôle-opt-in).
 
+> ⚠️ **TOUTES les routes exigent le token, `GET` compris** — `/health`, `/info`, `/metrics`,
+> `/history` et `/packets` répondent `401` sans en-tête. `handle_request` appelle `_authorized`
+> **avant** de dispatcher la méthode : il n'y a **aucune** route en lecture libre. Comme l'API
+> n'existe que si `MBG_API_TOKEN` est défini, un client sans token est **toujours** rejeté.
+>
+> **Piège de test** (vécu) : une assertion d'auth écrite avec un token **vide** passe à vide —
+> `hmac.compare_digest("", "")` est vrai, donc « sans en-tête → 200 » se « vérifie » sans rien
+> prouver. Toute assertion d'authentification doit utiliser un token **NON VIDE**.
+
 ```bash
 TOKEN=…              # = MBG_API_TOKEN
 BASE=http://<hote-passerelle>:8080
@@ -32,6 +41,7 @@ BASE=http://<hote-passerelle>:8080
 | `GET` | `/info` | découverte : `version`, `node_id`, `node_name`, `monitor_interval`, `battery_tiers`, `traceroute_enabled`, `broker`, `mqtt_proxy_ok`, `map_reporting` |
 | `GET` | `/metrics` | dernier relevé de la sonde ([monitoring.md](monitoring.md)) |
 | `GET` | `/history` | série `node_metrics` (ou `?type=traceroute` → historique traceroute) |
+| `GET` | `/packets` | histogramme **paquets reçus par nœud, par tranche** ([monitoring.md](monitoring.md#paquets-reçus-par-nœud-get-packets)) |
 
 `GET /info` renvoie la **version** de la passerelle + l'**identité du node** (id + nom humain, dès
 qu'un relevé a été fait) + quelques réglages — utile pour la découverte (ex. tuile d'un installateur).
@@ -97,6 +107,9 @@ curl -H "X-API-Token: $TOKEN" -d '{"dest":"!a1b2c3d4"}' $BASE/request/position  
 # admin :
 curl -H "X-API-Token: $TOKEN" -d '{"setting":"position_broadcast_secs","value":43200}' $BASE/admin
 curl -H "X-API-Token: $TOKEN" $BASE/health
+
+# histogramme des paquets reçus par nœud (tranches de 15 min sur les dernières 24 h) :
+curl -H "X-API-Token: $TOKEN" "$BASE/packets?since=$(( $(date +%s) - 86400 ))&bin=900"
 ```
 
 ## Codes de réponse

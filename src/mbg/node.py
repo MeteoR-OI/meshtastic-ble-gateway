@@ -102,6 +102,8 @@ class MeshtasticNodeLink:
         self._iface = None
         self._pending_acks = {}  # packet_id -> (label, timer) pour want_ack
         self._ack_lock = threading.Lock()
+        self._packet_counts = {}  # node_id -> nb de paquets reçus depuis le dernier flush
+        self._packet_lock = threading.Lock()  # le comptage vit dans le thread pubsub
         self._traceroute = None  # TracerouteCoordinator (attaché par la session si activé)
 
     def _handler(self, proxymessage=None, interface=None) -> None:
@@ -144,6 +146,9 @@ class MeshtasticNodeLink:
             "node": node,
             "position": pos,
             "neighbors": nbrs,
+            # Noms affichables de TOUTE la NodeDB (bloc `nodes` de /packets) : sur-ensemble
+            # volontaire de `neighbors` (ni filtre hops/activité, ni exclusion du node local).
+            "node_names": metrics.node_names(nodes_by_num),
         }
 
     def send(self, command: dict) -> dict:
@@ -224,8 +229,51 @@ class MeshtasticNodeLink:
         if present is not None:
             log.info("[downlink] ACK %s → timeout (aucun accusé reçu)", label)
 
+    def _count_packet(self, packet: dict) -> None:
+        """Compte un paquet entrant pour son nœud émetteur (histogramme `/packets`).
+
+        Chemin RADIO (thread pubsub) : un `dict[node_id] += 1` sous verrou, aucune I/O, et
+        surtout **ne lève JAMAIS** — un paquet exotique ne doit pas casser la réception. Compté
+        AVANT le filtre portnum : le contrat compte tous portnums confondus.
+
+        Le paquet est ici un dict DÉJÀ décodé par meshtastic (≠ le ServiceEnvelope protobuf de
+        `proxy.py`) : `fromId` est déjà `!hex`, avec repli sur `from` (int) comme `metrics.py`.
+
+        **Le nœud LOCAL (la passerelle) est compté comme les autres** — décision produit
+        explicite (arbitrage 2026-07-16, validée sur banc) : *il émet, donc il compte*.
+        ⚠️ Asymétrie ASSUMÉE avec `metrics.neighbors()`, qui EXCLUT le nœud local
+        (`if num == my_num: continue`) : l'histogramme montre donc N+1 émetteurs là où le
+        voisinage compte N voisins. C'est voulu — « voisins » répond à *qui est autour de moi*,
+        l'histogramme à *qui émet*. **Ne pas « corriger » cette différence** : ce n'est pas un
+        bug, et la légende cliquable du chart permet de retirer un nœud local bavard.
+        """
+        try:
+            node_id = packet.get("fromId")
+            if not node_id:
+                num = packet.get("from")
+                if num is None:
+                    return  # émetteur inconnu : non attribuable -> ne pas inventer de nœud
+                node_id = "!%08x" % (num & 0xFFFFFFFF)
+        except Exception:  # noqa: BLE001 — paquet malformé : on l'ignore, jamais d'exception ici
+            return
+        with self._packet_lock:
+            self._packet_counts[node_id] = self._packet_counts.get(node_id, 0) + 1
+
+    def drain_packet_counts(self) -> dict:
+        """Vide le compteur et renvoie `{node_id: count}` (RAM seule, aucune I/O BLE).
+
+        Sûr sur lien MORT — c'est ce qui autorise le flush de fin de session (voir `session`),
+        sans lequel toute session plus courte que `monitor_interval` perdrait ses comptages.
+        """
+        with self._packet_lock:
+            counts = self._packet_counts
+            self._packet_counts = {}
+        return counts
+
     def _handler_receive(self, packet=None, interface=None) -> None:
-        """ROUTING_APP -> accusé radio (want_ack) ; TRACEROUTE_APP -> corrélation traceroute."""
+        """Compte le paquet, puis : ROUTING_APP -> accusé radio (want_ack) ; TRACEROUTE_APP ->
+        corrélation traceroute."""
+        self._count_packet(packet or {})
         if self._traceroute is not None:
             self._traceroute.on_packet(packet or {})
         decoded = (packet or {}).get("decoded") or {}

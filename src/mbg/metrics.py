@@ -126,6 +126,34 @@ def neighbors(
     return out
 
 
+def node_names(nodes_by_num: Dict[int, Any]) -> List[Dict[str, Any]]:
+    """Noms affichables de TOUS les nodes de la NodeDB (source du bloc `nodes` de `/packets`).
+
+    Sur-ensemble VOLONTAIRE de `neighbors()` : aucun filtre `hopsAway` ni activité, et le node
+    local n'est pas exclu. `packet_counts` compte tout ce qui émet — y compris un node dont
+    `hopsAway` est inconnu (rejeté par `neighbors()`) et le node local lui-même (un ROUTING_APP
+    d'ACK broadcast vient `from self`) ; les filtrer ici les laisserait comptés sans nom.
+    C'est la raison d'être de la table `node_names`, distincte de `neighbor_registry`.
+
+    Un node sans aucun nom est omis : le repli `node_id` du contrat se fait à la lecture.
+    Purement local (dict NodeDB déjà en main) — aucune op BLE.
+    """
+    out: List[Dict[str, Any]] = []
+    for num, node in (nodes_by_num or {}).items():
+        user = node.get("user") or {}
+        short_name, long_name = user.get("shortName"), user.get("longName")
+        if not short_name and not long_name:
+            continue
+        out.append(
+            {
+                "node_id": user.get("id") or ("!%08x" % (num & 0xFFFFFFFF)),
+                "short_name": short_name,
+                "long_name": long_name,
+            }
+        )
+    return out
+
+
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Distance orthodromique (km) entre deux points WGS84."""
     r = 6371.0088  # rayon terrestre moyen (km)

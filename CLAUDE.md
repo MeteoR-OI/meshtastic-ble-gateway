@@ -108,11 +108,61 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
   l'affichage + `sent_epoch/recv_epoch` pour le calcul du planificateur) + requêtes d'état
   (`traceroute_last_sent`/`_last_attempt_by_node`/`_last_success_by_node`/`_count_since`/`_counters`).
   Voir `docs/traceroute.md`.
+- **Paquets par nœud (`GET /packets`, V0.9.2)** — histogramme « paquets reçus par nœud, par
+  tranche » (contrat `.agent-bus/CONTRACTS-gw-packets.md`, consommé par un skin WeeWX ; le
+  navigateur n'appelle JAMAIS la passerelle — c'est le report, sur le Pi, qui lit l'API).
+  **Comptage** dans `node._handler_receive` **avant le filtre portnum** (tous portnums confondus),
+  sous `_packet_lock` : chemin radio ⇒ `dict[node_id] += 1`, **aucune I/O, ne lève JAMAIS**. Le
+  paquet y est **déjà décodé** (≠ `ServiceEnvelope` protobuf de `proxy.py`) ⇒ `fromId` puis repli
+  sur `from` numérique ; **émetteur inexploitable = NON compté** (un `!00000000` de repli créerait
+  un nœud fantôme dans le chart). **Le nœud LOCAL est COMPTÉ** (décision produit, arbitrage humain
+  2026-07-16, validé banc PAM289) : *il émet, donc il compte* — ⚠️ **asymétrie ASSUMÉE** avec
+  `metrics.neighbors()` qui EXCLUT `my_num` ⇒ `/packets` montre N+1 émetteurs là où
+  `neighbors.count` en voit N. « Voisins » = qui est autour de moi ; « paquets » = qui émet. **Ne
+  PAS « corriger »** cette différence (le contrat la fige ; la légende cliquable du chart retire un
+  nœud local bavard). `drain_packet_counts()` vide le compteur **sans I/O BLE** ⇒ sûr sur lien mort. **Flush** dans le `monitor` du worker (hérite de l'early-sample + cadence) **ET à
+  la sortie de `run_one_session`** (seam `flush`, try/except) — **indispensable** : l'early-sample
+  tombe sur un dict vide et, si les sessions sont < `monitor_interval` (lien instable), le tic
+  périodique ne tombe JAMAIS ⇒ tous les comptages partiraient avec le `os._exit` (bug terrain
+  2026-07-08 rejoué). Perte assumée : worker figé + SIGKILL ⇒ ≤ `monitor_interval` de comptes
+  (irrécupérable par conception). **Stockage** : `packet_counts(ts,node_id,count)` **série
+  temporelle** (INSERT, jamais upsert) + `node_names(node_id PK, short_name, long_name, updated)` —
+  table d'identité **DÉDIÉE** car `metrics.neighbors()` jette `hopsAway=None`, les inactifs et le
+  node local, alors que les trois peuvent émettre ⇒ `neighbor_registry` n'est **pas** un
+  sur-ensemble des nœuds comptés (un JOIN perdrait des noms) ; alimentée par
+  `metrics.node_names(nodes_by_num)` (NodeDB déjà en main, zéro op BLE). **Lecture** :
+  `store.packet_history(since, bin)` fait le re-binning + l'agrégat **EN SQL**
+  (`CAST(ts/bin AS INT)*bin`, `GROUP BY` sur `idx_packets_ts`) — jamais en Python (~4 800 lignes au
+  lieu de ~170 k sur la fenêtre mois) ; noms résolus `short_name || long_name || node_id` (jamais
+  null ni absent). **Rétention : plafond DUR 35 j** via `prune_packets()`, appelée
+  **inconditionnellement** par `_maintenance` — `retention_days` vaut **0 par défaut** (= tout
+  garder) et le thread ne démarrait même pas sans `dump_dir`/`retention_days` ⇒ « purger dans
+  `prune()` » n'aurait JAMAIS tourné en prod (le thread démarre maintenant dès qu'un store existe).
+  `prune_packets` ne touche QUE `packet_counts` (purger les autres à 35 j = perte silencieuse pour
+  qui a choisi 0) ; `packet_counts` est tout de même dans `_TS_TABLES` (35 j = plafond, pas
+  plancher). `node_names` jamais purgée. **Perf mesurée sur ARM (PAM289)**, base saturée 35 j :
+  6 nœuds (mesh réel) = 60 480 lignes/2,8 Mo → `day` 11 ms, `month` 275 ms ; 20 nœuds = 201 600
+  lignes/9,6 Mo → `day` 38 ms, `month` 1 003 ms. Montée **linéaire** en nb de nœuds ; `day` (appel
+  de régime) reste 2 ordres de grandeur sous sa cible 300 ms, `month` (1×/jour) n'atteint la
+  seconde que vers **~20 nœuds** = le seuil à surveiller si le mesh grossit (recours : baisser le
+  Top-N ou le porter en SQL). ⚠️ **Index couvrant `idx(ts,node_id,count)` : testé et REJETÉ** —
+  +7 % de vitesse pour +60 % de disque (le coût est le `GROUP BY`/tri, pas la lecture de ligne) ;
+  `idx_packets_ts` seul est le bon compromis, ne pas « optimiser ». Voir `docs/monitoring.md`.
+- **API : TOUTES les routes sont authentifiées, `GET` compris.** `handle_request` appelle
+  `_authorized` **avant** le dispatch de méthode ⇒ `/health`, `/info`, `/metrics`, `/history`,
+  `/packets` renvoient `401` sans `X-API-Token` ; et l'API n'existe QUE si `api_token` est posé
+  (`_build_serve` renvoie None sinon) ⇒ il y a **toujours** un token en prod. Ne pas rejouer le
+  mythe « le token ne garde que les POST » (il a induit un contrat inter-agents en erreur).
+  ⚠️ **Piège de test** : une assertion d'auth écrite avec un token **VIDE** passe à vide
+  (`compare_digest("","")` est vrai) — elle « prouve » un accès libre qui n'existe pas. **Toujours
+  un token NON VIDE** dans un test d'auth. C'est le smoke du vrai serveur HTTP qui l'a démasqué,
+  pas le 100 % de couverture.
 - `api.py` — `handle_request(...)` **pur** (auth token + routage POST downlink via `dispatch`
   + GET monitoring via `metrics`) + `serve(...)` (adaptateur `http.server`, pragma/intégration).
   API OPT-IN (token). GET `/health`, `/info` (version + identité node + config, pour la découverte),
   `/metrics` (+ compteurs traceroute si monitoring), `/history` (`?type=traceroute` → historique
-  traceroute) ; POST `/send/*`, `/admin`, `/traceroute` (validation dest/hop_limit/timeout ;
+  traceroute), `/packets` (histogramme paquets par nœud ; 404 si monitoring off, comme `/metrics`) ;
+  POST `/send/*`, `/admin`, `/traceroute` (validation dest/hop_limit/timeout ;
   async 202 ou `wait:true` bloquant via `TracerouteReader`). `/info` reçoit un dict `info` statique
   (version+config) + fusionne l'identité node lue via `metrics.latest()` **et le statut
   onboarding** `broker`/`mqtt_proxy_ok`/`map_reporting` (CONTRACTS onboarding §3, consommé par
@@ -276,6 +326,11 @@ Les arguments CLI ne servent qu'en usage manuel/PoC et priment s'ils sont fourni
   + SQLite (`/history?type=traceroute`) + compteurs `/metrics`. Inclut la **réconciliation BLE
   pré-spawn** opt-in (`MBG_BLE_RECONCILE`) fiabilisant restart/respawn. Voir `traceroute.py`,
   `traceroute_scheduler.py`, `docs/traceroute.md`.
+- **V0.9.2** (fait) : **histogramme « paquets par nœud »** — `GET /packets` (`since`/`bin`,
+  agrégation SQL, rétention dure 35 j), comptage dans le chemin radio + tables `packet_counts` /
+  `node_names`. Aucune obs WeeWX ajoutée : le schéma WeeWX est **scalaire** et ne peut pas porter
+  une ventilation à cardinalité variable (N nœuds) → la donnée transite par l'API, lue par le
+  report **sur le Pi**. Contrat : `.agent-bus/CONTRACTS-gw-packets.md §Contrat A`.
 - **V0.10** : transports alternatifs (USB-série / WiFi-TCP) si le matériel du node le permet.
 
 ## Conventions

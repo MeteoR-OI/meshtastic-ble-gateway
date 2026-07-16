@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 import threading
+import time
 
 from fakes import FakeWorkerHandle
 from mbg.config import Config
+from mbg.storage import PACKET_RETENTION_SECONDS
 from mbg.supervisor import Supervisor
 from mbg.tiers import CRITICAL, HIGH, TIER_HIGH_INTERVAL
 
@@ -241,6 +243,7 @@ class FakeStore:
     def __init__(self):
         self.links = []
         self.pruned = []
+        self.pruned_packets = []
         self.exported = []
 
     def record_link(self, reconnects):
@@ -249,8 +252,29 @@ class FakeStore:
     def prune(self, seconds):
         self.pruned.append(seconds)
 
+    def prune_packets(self, seconds):
+        self.pruned_packets.append(seconds)
+
     def export_csv(self, directory):
         self.exported.append(directory)
+
+
+# Le thread de maintenance démarre désormais dès qu'un store est fourni (le plafond dur de
+# packet_counts doit s'appliquer même sans dump_dir ni retention_days). Il PARTAGE le seam
+# `sleep` avec la boucle principale : avec un faux sleep instantané il tournerait en boucle
+# serrée et parasiterait les séquences des tests dont il n'est pas le sujet. On lui rend donc
+# un vrai (bref) sommeil, la boucle principale gardant son faux sleep.
+_MAINT_TICK = Config().dump_interval  # 3600 s — sans commune mesure avec les ticks du superviseur
+
+
+def quiet_maintenance(sleep_fn):
+    def _sleep(seconds):
+        if seconds == _MAINT_TICK:
+            time.sleep(0.05)
+            return
+        sleep_fn(seconds)
+
+    return _sleep
 
 
 class FakeLatestStore(FakeStore):
@@ -358,7 +382,7 @@ def test_duty_cycle_run_cuts_off_and_records():
     Supervisor(
         Config(battery_tiers=True, monitor_interval=300, duty_on=3, duty_off=5,
                supervisor_tick=1, tier_hysteresis=3),
-        spawn, sleep=lambda s: setattr(clock, "t", clock.t + s), clock=clock,
+        spawn, sleep=quiet_maintenance(lambda s: setattr(clock, "t", clock.t + s)), clock=clock,
         notify=notes.append, store=store,
     ).run(cont)
 
@@ -392,7 +416,7 @@ def test_mode_change_forces_telemetry_once():
 
     Supervisor(
         Config(battery_tiers=True, monitor_interval=300, tier_hysteresis=3, reconnect_delay=5),
-        spawn, sleep=sleep_, clock=Clock(), notify=lambda _: None, store=store,
+        spawn, sleep=quiet_maintenance(sleep_), clock=Clock(), notify=lambda _: None, store=store,
     ).run(cont)
 
     assert spawned[0].force_telemetry is True   # 1re session = changement de mode -> télémétrie
@@ -416,7 +440,7 @@ def test_record_link_on_respawn():
             workers[-1].alive = False  # sort non-productif -> respawn
 
     Supervisor(
-        Config(supervisor_tick=1, reconnect_delay=5), spawn, sleep=sleep_,
+        Config(supervisor_tick=1, reconnect_delay=5), spawn, sleep=quiet_maintenance(sleep_),
         clock=Clock(), notify=lambda _: None, store=store,
     ).run(seq([True, True, True, False]))
     assert store.links == [1]  # une reconnexion enregistrée
@@ -431,9 +455,13 @@ def test_maintenance_prunes_and_exports():
     ticks = iter([True, False])
     sup._maintenance(lambda: next(ticks))
     assert store.pruned == [2 * 86400] and store.exported == ["/x"]
+    assert store.pruned_packets == [PACKET_RETENTION_SECONDS]
 
 
-def test_maintenance_without_dump_or_retention():
+def test_maintenance_without_dump_or_retention_still_caps_packets():
+    # RÉGRESSION : `retention_days=0` (défaut = « je garde tout ») + pas de dump_dir. Les tables
+    # historiques sont préservées (prune() jamais appelé), MAIS packet_counts est plafonné quand
+    # même : c'est une série temporelle qui, sans plafond dur, fuirait indéfiniment.
     store = FakeStore()
     sup = Supervisor(
         Config(dump_dir=None, retention_days=0), lambda: None,
@@ -441,7 +469,8 @@ def test_maintenance_without_dump_or_retention():
     )
     ticks = iter([True, False])
     sup._maintenance(lambda: next(ticks))
-    assert store.pruned == [] and store.exported == []
+    assert store.pruned == [] and store.exported == []  # aucune perte sur les autres tables
+    assert store.pruned_packets == [PACKET_RETENTION_SECONDS] == [35 * 86400]
 
 
 def test_run_starts_maintenance_thread():
@@ -451,6 +480,22 @@ def test_run_starts_maintenance_thread():
         sleep=lambda s: None, clock=lambda: 0.0, notify=lambda _: None, store=store,
     )
     sup.run(lambda: False)  # démarre le thread de maintenance puis sort aussitôt
+
+
+def test_run_starts_maintenance_thread_without_dump_or_retention():
+    # RÉGRESSION (le bug que le brief aurait livré) : sur la config PAR DÉFAUT (retention_days=0,
+    # dump_dir=None), l'ancien garde-fou ne démarrait PAS le thread -> prune_packets n'aurait
+    # jamais tourné et le plafond 35 j n'aurait servi à rien. Le store seul doit suffire.
+    store = FakeStore()
+    done = threading.Event()
+    store.prune_packets = lambda seconds: done.set()
+    sup = Supervisor(
+        Config(dump_dir=None, retention_days=0, dump_interval=0.01),
+        lambda cfg=None: FakeWorkerHandle(),
+        clock=lambda: 0.0, notify=lambda _: None, store=store,
+    )
+    sup.run(lambda: done.wait(2) and False)  # sort dès que le thread a purgé (ou au bout de 2 s)
+    assert done.is_set()
 
 
 def test_run_starts_api_server_thread():

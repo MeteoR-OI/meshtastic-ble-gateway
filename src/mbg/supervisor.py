@@ -19,6 +19,7 @@ from dataclasses import replace
 from typing import Any, Callable, Dict, Optional
 
 from .config import Config
+from .storage import PACKET_RETENTION_SECONDS
 from .systemd_notify import sd_notify
 from .tiers import Tier, select_tier
 
@@ -160,6 +161,11 @@ class Supervisor:
         """Thread : purge + export CSV périodiques de la base de métriques."""
         while should_run():
             self._sleep(self._config.dump_interval)
+            # Plafond DUR de packet_counts : INCONDITIONNEL, car `retention_days` vaut 0 (= pas
+            # de purge) par défaut — la série temporelle des paquets grossirait alors sans fin.
+            # `prune_packets` ne touche QUE packet_counts : une station qui a explicitement choisi
+            # retention_days=0 (« je garde tout ») conserve node_metrics/link_quality/traceroute.
+            self._store.prune_packets(PACKET_RETENTION_SECONDS)
             if self._config.retention_days > 0:
                 self._store.prune(self._config.retention_days * 86400)
             if self._config.dump_dir:
@@ -174,7 +180,9 @@ class Supervisor:
             threading.Thread(
                 target=self._serve, args=(self.submit, should_run), name="mbg-api", daemon=True
             ).start()
-        if self._store is not None and (self._config.dump_dir or self._config.retention_days > 0):
+        # Démarré dès qu'il y a un store : le plafond dur de packet_counts doit s'appliquer même
+        # sans dump_dir ni retention_days (les DÉFAUTS), sinon la purge ne tournerait jamais.
+        if self._store is not None:
             threading.Thread(target=self._maintenance, args=(should_run,), name="mbg-maint", daemon=True).start()
         try:
             delay = self._config.reconnect_delay

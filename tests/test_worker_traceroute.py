@@ -71,7 +71,7 @@ def test_traceroute_setup_endpoint_only():
     # api_token seul -> traceroute_active True, coordinateur monté, PAS de scheduler
     captured = {}
 
-    def session(config, pf, nf, hb, sc, commands=None, monitor=None, tune=None, traceroute_setup=None):
+    def session(config, pf, nf, hb, sc, commands=None, monitor=None, flush=None, tune=None, traceroute_setup=None):
         pub = FakePub()
         link = FakeLink(None, None, None)
         captured["result"] = traceroute_setup(link, pub)
@@ -87,7 +87,7 @@ def test_traceroute_setup_endpoint_only():
 def test_traceroute_setup_with_scheduler():
     captured = {}
 
-    def session(config, pf, nf, hb, sc, commands=None, monitor=None, tune=None, traceroute_setup=None):
+    def session(config, pf, nf, hb, sc, commands=None, monitor=None, flush=None, tune=None, traceroute_setup=None):
         captured["result"] = traceroute_setup(FakeLink(None, None, None), FakePub())
 
     _run(Config(traceroute_enabled=True, api_token=None, monitor_interval=0), session)
@@ -103,7 +103,7 @@ def test_traceroute_setup_with_scheduler():
 def test_no_traceroute_setup_when_inactive():
     seen = {}
 
-    def session(config, pf, nf, hb, sc, commands=None, monitor=None, tune=None, traceroute_setup=None):
+    def session(config, pf, nf, hb, sc, commands=None, monitor=None, flush=None, tune=None, traceroute_setup=None):
         seen["setup"] = traceroute_setup
 
     _run(Config(api_token=None, traceroute_enabled=False, monitor_interval=0), session)
@@ -113,7 +113,7 @@ def test_no_traceroute_setup_when_inactive():
 def test_chanutil_fn_none_when_no_node():
     captured = {}
 
-    def session(config, pf, nf, hb, sc, commands=None, monitor=None, tune=None, traceroute_setup=None):
+    def session(config, pf, nf, hb, sc, commands=None, monitor=None, flush=None, tune=None, traceroute_setup=None):
         traceroute_setup(FakeLink(None, None, None), FakePub())
         captured["ok"] = True
 

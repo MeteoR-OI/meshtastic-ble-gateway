@@ -34,7 +34,7 @@ def test_worker_body_runs_session_and_heartbeats():
     counter = FakeCounter()
     captured = {}
 
-    def fake_session(config, publisher_factory, nodelink_factory, heartbeat, should_continue, commands=None, monitor=None, tune=None, traceroute_setup=None):
+    def fake_session(config, publisher_factory, nodelink_factory, heartbeat, should_continue, commands=None, monitor=None, flush=None, tune=None, traceroute_setup=None):
         captured["pub"] = publisher_factory()  # exerce publisher_factory
         captured["link"] = nodelink_factory("a", lambda m: None, lambda: None)  # et nodelink_factory
         captured["commands"] = commands
@@ -62,7 +62,7 @@ def test_worker_body_tunes_when_enabled():
     tuned = []
     captured = {}
 
-    def fake_session(config, pf, nf, hb, sc, commands=None, monitor=None, tune=None, traceroute_setup=None):
+    def fake_session(config, pf, nf, hb, sc, commands=None, monitor=None, flush=None, tune=None, traceroute_setup=None):
         captured["tune"] = tune
         tune()  # la session déclenche le réglage une fois le lien établi
 
@@ -81,6 +81,8 @@ class FakeStore:
         self.path = path
         self.nodes = []
         self.neigh = []
+        self.names = []
+        self.packets = []
 
     def record_node(self, m, p):
         self.nodes.append((m, p))
@@ -88,22 +90,37 @@ class FakeStore:
     def upsert_neighbors(self, n):
         self.neigh.append(n)
 
+    def upsert_node_names(self, n):
+        self.names.append(n)
+
+    def record_packets(self, counts):
+        self.packets.append(counts)
+
 
 class MonLink:
     def __init__(self):
         self.sent = []
         self.read_kwargs = None
+        self.drained = 0
 
     def send(self, command):
         self.sent.append(command)
 
+    def drain_packet_counts(self):
+        self.drained += 1
+        return {"!x": 4}
+
     def read_metrics(self, *, now=None, active_window=None):
         self.read_kwargs = {"now": now, "active_window": active_window}
-        return {"node": {"battery_level": 80}, "position": {"lat": 1}, "neighbors": [{"node_id": "!x"}]}
+        return {
+            "node": {"battery_level": 80}, "position": {"lat": 1},
+            "neighbors": [{"node_id": "!x"}],
+            "node_names": [{"node_id": "!x", "short_name": "X", "long_name": "Node X"}],
+        }
 
 
 def _session_calling_monitor(link):
-    def session(config, pf, nf, hb, sc, commands=None, monitor=None, tune=None, traceroute_setup=None):
+    def session(config, pf, nf, hb, sc, commands=None, monitor=None, flush=None, tune=None, traceroute_setup=None):
         monitor(link)
 
     return session
@@ -121,6 +138,8 @@ def test_worker_body_monitoring_records():
     )
     assert stores[0].nodes == [({"battery_level": 80}, {"lat": 1})]
     assert stores[0].neigh == [[{"node_id": "!x"}]]
+    assert stores[0].names == [[{"node_id": "!x", "short_name": "X", "long_name": "Node X"}]]
+    assert stores[0].packets == [{"!x": 4}]  # les compteurs sont vidés à la cadence du monitor
     assert link.sent == []  # force_telemetry False
     # filtre "voisin actif" passé à l'extraction : now=horloge, fenêtre=max(monitor_interval, plancher 3600)
     assert link.read_kwargs == {"now": 1000.0, "active_window": 3600.0}
@@ -139,7 +158,7 @@ def test_worker_body_monitoring_force_telemetry():
 def test_worker_body_monitoring_off_no_store():
     calls = {"store": 0}
 
-    def session(config, pf, nf, hb, sc, commands=None, monitor=None, tune=None, traceroute_setup=None):
+    def session(config, pf, nf, hb, sc, commands=None, monitor=None, flush=None, tune=None, traceroute_setup=None):
         assert monitor is None
 
     _worker_body(
