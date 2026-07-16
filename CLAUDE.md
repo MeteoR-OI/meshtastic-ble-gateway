@@ -115,8 +115,12 @@ matériel ni vrai process. Deux processus : un **superviseur** (parent, jamais d
   sous `_packet_lock` : chemin radio ⇒ `dict[node_id] += 1`, **aucune I/O, ne lève JAMAIS**. Le
   paquet y est **déjà décodé** (≠ `ServiceEnvelope` protobuf de `proxy.py`) ⇒ `fromId` puis repli
   sur `from` numérique ; **émetteur inexploitable = NON compté** (un `!00000000` de repli créerait
-  un nœud fantôme dans le chart). `drain_packet_counts()` vide le compteur **sans I/O BLE** ⇒ sûr
-  sur lien mort. **Flush** dans le `monitor` du worker (hérite de l'early-sample + cadence) **ET à
+  un nœud fantôme dans le chart). **Le nœud LOCAL est COMPTÉ** (décision produit, arbitrage humain
+  2026-07-16, validé banc PAM289) : *il émet, donc il compte* — ⚠️ **asymétrie ASSUMÉE** avec
+  `metrics.neighbors()` qui EXCLUT `my_num` ⇒ `/packets` montre N+1 émetteurs là où
+  `neighbors.count` en voit N. « Voisins » = qui est autour de moi ; « paquets » = qui émet. **Ne
+  PAS « corriger »** cette différence (le contrat la fige ; la légende cliquable du chart retire un
+  nœud local bavard). `drain_packet_counts()` vide le compteur **sans I/O BLE** ⇒ sûr sur lien mort. **Flush** dans le `monitor` du worker (hérite de l'early-sample + cadence) **ET à
   la sortie de `run_one_session`** (seam `flush`, try/except) — **indispensable** : l'early-sample
   tombe sur un dict vide et, si les sessions sont < `monitor_interval` (lien instable), le tic
   périodique ne tombe JAMAIS ⇒ tous les comptages partiraient avec le `os._exit` (bug terrain

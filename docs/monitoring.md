@@ -91,6 +91,11 @@ curl -H "X-API-Token: $TOKEN" "$BASE/packets?since=$(( $(date +%s) - 86400 ))&bi
 - `nodes` = `node_id → nom affichable`, résolu `short_name || long_name || node_id`. Ne contient
   que les nœuds présents dans `rows` ; un nœud jamais nommé par la sonde apparaît **quand même**,
   sous son `node_id` — jamais absent, jamais `null`.
+- **Le nœud local (la passerelle) est compté comme les autres** : *il émet, donc il compte*.
+  ⚠️ **Asymétrie assumée** avec l'agrégat `neighbors` de `/metrics`, qui **exclut** le nœud local :
+  `/packets` montre donc **N+1 émetteurs** là où `neighbors.count` en voit **N**. Ce n'est pas une
+  incohérence à corriger — « voisins » répond à *qui est autour de moi*, l'histogramme à *qui
+  émet*. Un nœud local bavard se retire côté affichage (légende cliquable).
 - `400 {"ok": false, "error": "paramètres invalides"}` si `since`/`bin` ne sont pas numériques ou
   si `bin` sort des bornes.
 

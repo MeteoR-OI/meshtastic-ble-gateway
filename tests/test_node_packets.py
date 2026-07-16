@@ -45,6 +45,21 @@ def test_never_raises_and_never_invents_a_node():
     assert link.drain_packet_counts() == {}
 
 
+def test_counts_the_local_node_too():
+    """DÉCISION PRODUIT (arbitrage 2026-07-16, validée banc PAM289) : le nœud LOCAL compte.
+
+    « Il émet, donc il compte. » Asymétrie ASSUMÉE avec `metrics.neighbors()`, qui exclut
+    `my_num` : l'histogramme montre N+1 émetteurs là où le voisinage compte N voisins. Ce test
+    existe pour qu'un futur lecteur ne « corrige » pas cette différence en croyant à un bug —
+    la faire échouer, c'est casser le contrat, pas réparer quoi que ce soit.
+    """
+    link = _link()
+    link._iface = type("I", (), {"getMyNodeInfo": lambda self: {"num": 0x534BBEA5}})()
+    link._handler_receive(packet={"fromId": "!534bbea5"})  # la passerelle elle-même (ACK broadcast)
+    link._handler_receive(packet={"fromId": "!aaaa0001"})  # un voisin
+    assert link.drain_packet_counts() == {"!534bbea5": 1, "!aaaa0001": 1}
+
+
 def test_drain_empties_the_counter():
     link = _link()
     link._handler_receive(packet={"fromId": "!a"})

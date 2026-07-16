@@ -234,10 +234,18 @@ class MeshtasticNodeLink:
 
         Chemin RADIO (thread pubsub) : un `dict[node_id] += 1` sous verrou, aucune I/O, et
         surtout **ne lève JAMAIS** — un paquet exotique ne doit pas casser la réception. Compté
-        AVANT le filtre portnum : le contrat A compte tous portnums confondus.
+        AVANT le filtre portnum : le contrat compte tous portnums confondus.
 
         Le paquet est ici un dict DÉJÀ décodé par meshtastic (≠ le ServiceEnvelope protobuf de
         `proxy.py`) : `fromId` est déjà `!hex`, avec repli sur `from` (int) comme `metrics.py`.
+
+        **Le nœud LOCAL (la passerelle) est compté comme les autres** — décision produit
+        explicite (arbitrage 2026-07-16, validée sur banc) : *il émet, donc il compte*.
+        ⚠️ Asymétrie ASSUMÉE avec `metrics.neighbors()`, qui EXCLUT le nœud local
+        (`if num == my_num: continue`) : l'histogramme montre donc N+1 émetteurs là où le
+        voisinage compte N voisins. C'est voulu — « voisins » répond à *qui est autour de moi*,
+        l'histogramme à *qui émet*. **Ne pas « corriger » cette différence** : ce n'est pas un
+        bug, et la légende cliquable du chart permet de retirer un nœud local bavard.
         """
         try:
             node_id = packet.get("fromId")
