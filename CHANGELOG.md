@@ -4,7 +4,7 @@ Toutes les évolutions notables. Format inspiré de [Keep a Changelog](https://k
 versionnage [SemVer](https://semver.org/lang/fr/). Notes et artefacts détaillés :
 [Releases GitHub](https://github.com/MeteoR-OI/meshtastic-ble-gateway/releases).
 
-## [Non publié]
+## [0.9.2] — 2026-07-16
 ### Ajouté
 - **Histogramme « paquets reçus par nœud, par tranche »** : nouvel endpoint **`GET /packets`**
   (`?since=<epoch_s>&bin=<sec>`, `bin` ∈ [60, 86400], défaut 300, réfléchi dans la réponse) qui
