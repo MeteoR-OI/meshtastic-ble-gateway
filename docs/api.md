@@ -14,7 +14,7 @@ Sécurité v1 : token + bind LAN/VPN (`MBG_API_HOST=127.0.0.1` pour du localhost
 [configuration.md](configuration.md#api-de-contrôle-opt-in).
 
 > ⚠️ **TOUTES les routes exigent le token, `GET` compris** — `/health`, `/info`, `/metrics`,
-> `/history` et `/packets` répondent `401` sans en-tête. `handle_request` appelle `_authorized`
+> `/history`, `/packets` et `/hops` répondent `401` sans en-tête. `handle_request` appelle `_authorized`
 > **avant** de dispatcher la méthode : il n'y a **aucune** route en lecture libre. Comme l'API
 > n'existe que si `MBG_API_TOKEN` est défini, un client sans token est **toujours** rejeté.
 >
@@ -42,6 +42,7 @@ BASE=http://<hote-passerelle>:8080
 | `GET` | `/metrics` | dernier relevé de la sonde ([monitoring.md](monitoring.md)) |
 | `GET` | `/history` | série `node_metrics` (ou `?type=traceroute` → historique traceroute) |
 | `GET` | `/packets` | histogramme **paquets reçus par nœud, par tranche** ([monitoring.md](monitoring.md#paquets-reçus-par-nœud-get-packets)) |
+| `GET` | `/hops` | histogramme **paquets reçus par nombre de sauts, par tranche** ([monitoring.md](monitoring.md#paquets-reçus-par-nombre-de-sauts-get-hops)) |
 
 `GET /info` renvoie la **version** de la passerelle + l'**identité du node** (id + nom humain, dès
 qu'un relevé a été fait) + quelques réglages — utile pour la découverte (ex. tuile d'un installateur).
@@ -110,6 +111,9 @@ curl -H "X-API-Token: $TOKEN" $BASE/health
 
 # histogramme des paquets reçus par nœud (tranches de 15 min sur les dernières 24 h) :
 curl -H "X-API-Token: $TOKEN" "$BASE/packets?since=$(( $(date +%s) - 86400 ))&bin=900"
+
+# histogramme des paquets reçus par nombre de sauts (mêmes bornes/params que /packets) :
+curl -H "X-API-Token: $TOKEN" "$BASE/hops?since=$(( $(date +%s) - 86400 ))&bin=900"
 ```
 
 ## Codes de réponse

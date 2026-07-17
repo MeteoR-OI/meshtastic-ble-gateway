@@ -49,6 +49,9 @@ pas publier tout seul (pas de WiFi). Ce pont, hébergé sur un Raspberry Pi, se 
 - **Paquets par nœud** : histogramme « paquets reçus par nœud, par tranche » (`GET /packets`,
   agrégation SQL, rétention 35 j) —
   voir [monitoring](docs/monitoring.md#paquets-reçus-par-nœud-get-packets).
+- **Paquets par nombre de sauts** : histogramme « paquets reçus par nombre de sauts, par tranche »
+  (`GET /hops` — Direct/1..7/Inconnu, agrégation SQL, mêmes bornes & rétention que `/packets`) —
+  voir [monitoring](docs/monitoring.md#paquets-reçus-par-nombre-de-sauts-get-hops).
 - **Paliers batterie + duty-cycle** : adaptatif selon la batterie du node —
   voir [battery-tiers](docs/battery-tiers.md).
 - **Stabilisation du lien** sur signal faible (`hcitool lecup`) — voir [resilience](docs/resilience.md#stabilisation-du-lien-ble-signal-faible).
@@ -78,7 +81,7 @@ Déploiement RPi (systemd), y compris le cas **Buster** : **[docs/installation.m
 | [configuration.md](docs/configuration.md) | **Toutes** les variables d'environnement `MBG_*` |
 | [api.md](docs/api.md) | API de contrôle : endpoints, `curl`, requêtes distantes, codes |
 | [traceroute.md](docs/traceroute.md) | Traceroute : endpoint `POST /traceroute`, planificateur, format MQTT/`/history` |
-| [monitoring.md](docs/monitoring.md) | Sonde SQLite, `/metrics`, `/history`, `/packets` (paquets par nœud), export CSV |
+| [monitoring.md](docs/monitoring.md) | Sonde SQLite, `/metrics`, `/history`, `/packets` (paquets par nœud), `/hops` (paquets par saut), export CSV |
 | [battery-tiers.md](docs/battery-tiers.md) | Paliers batterie + duty-cycle |
 | [resilience.md](docs/resilience.md) | Isolation de process, watchdog, tuning du lien BLE |
 | [architecture.md](docs/architecture.md) | Composants, modules, flux uplink/downlink |
@@ -99,6 +102,7 @@ Déploiement RPi (systemd), y compris le cas **Buster** : **[docs/installation.m
 | **V0.8** | Épic onboarding : outil `mbg.provision` (config node par BLE) + statut onboarding `/info` (broker / `mqtt_proxy_ok` / `map_reporting`) | ✅ |
 | **V0.9** | Traceroute : endpoint `POST /traceroute` + planificateur automatique (opt-in) ; réconciliation BLE au restart | ✅ |
 | **V0.9.2** | Histogramme « paquets reçus par nœud » : `GET /packets` (agrégation SQL, rétention 35 j) | ✅ |
+| **V0.9.3** | Histogramme « paquets reçus par nombre de sauts » : `GET /hops` (Direct/1..7/Inconnu, aires empilées côté skin) | ✅ |
 | **V0.10** | Transports alternatifs (USB-série / WiFi-TCP) | ⏳ |
 
 Historique détaillé : [CHANGELOG.md](CHANGELOG.md).
