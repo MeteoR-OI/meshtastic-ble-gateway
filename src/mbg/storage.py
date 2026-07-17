@@ -29,7 +29,7 @@ from . import metrics as metrics_mod
 # n'y est PAS : il s'AGRÈGE (une ligne/node) et ne se purge pas (distinct_total = tout
 # l'historique) ; il vieillit uniquement par le filtre d'activité à la lecture. `node_names`
 # non plus, pour la même raison (une ligne/node, et un nom doit survivre aux comptages).
-_TS_TABLES = ("node_metrics", "link_quality", "packet_counts")
+_TS_TABLES = ("node_metrics", "link_quality", "packet_counts", "packet_hops")
 # (table, colonne d'ordre) pour l'export CSV.
 _EXPORT_TABLES: Tuple[Tuple[str, str], ...] = (
     ("node_metrics", "ts"),
@@ -37,17 +37,19 @@ _EXPORT_TABLES: Tuple[Tuple[str, str], ...] = (
     ("neighbor_registry", "last_heard"),
     ("traceroute", "sent_epoch"),
     ("packet_counts", "ts"),
+    ("packet_hops", "ts"),
     ("node_names", "updated"),
 )
 
-# Plafond DUR de rétention de `packet_counts`, INDÉPENDANT de `retention_days` (qui vaut 0 par
-# défaut = « pas de purge », cf. config.py). Une série temporelle qui ne se purge jamais est une
-# fuite lente : ~5 800 lignes/jour (288 flushes × ~20 nœuds) ⇒ ~200 k lignes à l'équilibre.
+# Plafond DUR de rétention de `packet_counts` ET `packet_hops`, INDÉPENDANT de `retention_days`
+# (qui vaut 0 par défaut = « pas de purge », cf. config.py). Une série temporelle qui ne se purge
+# jamais est une fuite lente : ~5 800 lignes/jour (288 flushes × ~20 nœuds) pour packet_counts,
+# ~2 600 lignes/jour (288 × ≤ 9 buckets) pour packet_hops ⇒ ~200 k / ~90 k lignes à l'équilibre.
 # 35 j = fenêtre du chart « mois » + marge. Appliqué par `prune_packets` (voir sa docstring pour
 # la raison de la séparation d'avec `prune`), inconditionnellement, à chaque cycle de maintenance.
 PACKET_RETENTION_SECONDS = 35 * 86400
 
-# Bornes du re-binning de `/packets` (contrat A) : `bin` ∈ [60 s, 24 h], défaut 300 s.
+# Bornes du re-binning de `/packets` et `/hops` (contrat A) : `bin` ∈ [60 s, 24 h], défaut 300 s.
 PACKET_BIN_DEFAULT = 300
 PACKET_BIN_MIN = 60
 PACKET_BIN_MAX = 86400
@@ -65,6 +67,7 @@ CREATE TABLE IF NOT EXISTS neighbor_registry (
 );
 CREATE TABLE IF NOT EXISTS link_quality (ts REAL, reconnects INTEGER);
 CREATE TABLE IF NOT EXISTS packet_counts (ts REAL, node_id TEXT, count INTEGER);
+CREATE TABLE IF NOT EXISTS packet_hops (ts REAL, hops INTEGER, count INTEGER);
 CREATE TABLE IF NOT EXISTS node_names (
   node_id TEXT PRIMARY KEY, short_name TEXT, long_name TEXT, updated REAL
 );
@@ -80,6 +83,7 @@ CREATE TABLE IF NOT EXISTS traceroute (
 CREATE INDEX IF NOT EXISTS idx_node_ts ON node_metrics(ts);
 CREATE INDEX IF NOT EXISTS idx_traceroute_dest_ts ON traceroute(dest, sent_epoch);
 CREATE INDEX IF NOT EXISTS idx_packets_ts ON packet_counts(ts);
+CREATE INDEX IF NOT EXISTS idx_packet_hops_ts ON packet_hops(ts);
 """
 
 # Colonnes ajoutées à node_metrics APRÈS la 1re release : `CREATE TABLE IF NOT EXISTS` n'ajoute
@@ -271,8 +275,46 @@ class MetricsStore:
             "rows": [[r["b"], r["node_id"], r["c"]] for r in rows],
         }
 
+    # --- Paquets reçus par nombre de sauts (histogramme /hops) ---
+    def record_packet_hops(self, counts: Dict[int, int]) -> None:
+        """Écrit un lot de comptages par saut (une ligne par bucket, `ts` = instant du flush).
+
+        Calqué sur `record_packets` : `INSERT`, jamais upsert (SÉRIE TEMPORELLE), re-binning à la
+        lecture, lot vide = aucune écriture. `hops` ∈ {0..7} ou `-1` (Inconnu) — cf. `_hop_bucket`.
+        """
+        if not counts:
+            return
+        ts = self._clock()
+        with self._conn(commit=True) as conn:
+            conn.executemany(
+                "INSERT INTO packet_hops (ts,hops,count) VALUES (?,?,?)",
+                [(ts, hops, count) for hops, count in counts.items()],
+            )
+
+    def packet_hops_history(
+        self, since: float = 0.0, bin_seconds: int = PACKET_BIN_DEFAULT
+    ) -> Dict[str, Any]:
+        """Histogramme « paquets par nombre de sauts, par tranche » — contrat A de `GET /hops`.
+
+        Frère strict de `packet_history`, MAIS **sans résolution de noms** : la dimension est un
+        entier fixe (`hops`), pas un nœud à nommer. Agrégation EN SQL (jamais en Python), adossée
+        à `idx_packet_hops_ts`. Cardinalité bornée (≤ 9 buckets) ⇒ encore moins de lignes que
+        `/packets`. Une tranche sans paquet pour un `hops` n'a PAS de ligne (remplissage à 0 = charge
+        du consommateur). `rows` triées par `bin_start` croissant.
+        """
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT CAST(ts/? AS INT)*? AS b, hops, SUM(count) AS c "
+                "FROM packet_hops WHERE ts>=? GROUP BY b, hops ORDER BY b",
+                (bin_seconds, bin_seconds, since),
+            ).fetchall()
+        return {
+            "bin": bin_seconds,
+            "rows": [[r["b"], r["hops"], r["c"]] for r in rows],
+        }
+
     def prune_packets(self, older_than_seconds: float) -> None:
-        """Purge `packet_counts` SEULE, au plafond dur (cf. `PACKET_RETENTION_SECONDS`).
+        """Purge `packet_counts` ET `packet_hops`, au plafond dur (cf. `PACKET_RETENTION_SECONDS`).
 
         Séparée de `prune()` À DESSEIN : le superviseur l'appelle INCONDITIONNELLEMENT, alors que
         `prune()` reste gouvernée par `retention_days` (0 par défaut = « je garde tout »). Purger
@@ -280,13 +322,15 @@ class MetricsStore:
         station qui a explicitement choisi 0. `node_names` n'est pas purgée (elle s'agrège, et
         doit pouvoir nommer tout comptage encore en fenêtre).
 
-        `packet_counts` est AUSSI dans `_TS_TABLES` : une station qui fixe `retention_days` en
-        deçà de 35 j la purge donc plus tôt, via `prune()`. Les deux purges coexistent — 35 j
-        est un plafond, pas un plancher.
+        `packet_counts` et `packet_hops` sont AUSSI dans `_TS_TABLES` : une station qui fixe
+        `retention_days` en deçà de 35 j les purge donc plus tôt, via `prune()`. Les deux purges
+        coexistent — 35 j est un plafond, pas un plancher. Les deux tables à série temporelle du
+        chart sont purgées ensemble (une TS-table qui ne se purge jamais est une fuite).
         """
         cutoff = self._clock() - older_than_seconds
         with self._conn(commit=True) as conn:
             conn.execute("DELETE FROM packet_counts WHERE ts < ?", (cutoff,))
+            conn.execute("DELETE FROM packet_hops WHERE ts < ?", (cutoff,))
 
     # --- Traceroute (endpoint + planificateur) ---
     def record_traceroute(self, result: Dict[str, Any], sent_epoch: float, recv_epoch: Optional[float]) -> None:

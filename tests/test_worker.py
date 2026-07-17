@@ -83,6 +83,7 @@ class FakeStore:
         self.neigh = []
         self.names = []
         self.packets = []
+        self.hops = []
 
     def record_node(self, m, p):
         self.nodes.append((m, p))
@@ -95,6 +96,9 @@ class FakeStore:
 
     def record_packets(self, counts):
         self.packets.append(counts)
+
+    def record_packet_hops(self, counts):
+        self.hops.append(counts)
 
 
 class MonLink:
@@ -109,6 +113,9 @@ class MonLink:
     def drain_packet_counts(self):
         self.drained += 1
         return {"!x": 4}
+
+    def drain_packet_hop_counts(self):
+        return {2: 4}
 
     def read_metrics(self, *, now=None, active_window=None):
         self.read_kwargs = {"now": now, "active_window": active_window}
@@ -140,6 +147,7 @@ def test_worker_body_monitoring_records():
     assert stores[0].neigh == [[{"node_id": "!x"}]]
     assert stores[0].names == [[{"node_id": "!x", "short_name": "X", "long_name": "Node X"}]]
     assert stores[0].packets == [{"!x": 4}]  # les compteurs sont vidés à la cadence du monitor
+    assert stores[0].hops == [{2: 4}]  # ...et le compteur par saut se vide avec, même population
     assert link.sent == []  # force_telemetry False
     # filtre "voisin actif" passé à l'extraction : now=horloge, fenêtre=max(monitor_interval, plancher 3600)
     assert link.read_kwargs == {"now": 1000.0, "active_window": 3600.0}
