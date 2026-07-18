@@ -55,6 +55,19 @@ def test_packet_hops_history_bins_and_sums_in_sql(tmp_path):
     assert [r[0] for r in out["rows"]] == sorted(r[0] for r in out["rows"])
 
 
+def test_packet_hops_history_carries_local_bucket_minus_2(tmp_path):
+    # Le domaine hops inclut -2 (LOCAL) et -1 (Inconnu) : le store est agnostique à la valeur,
+    # mais on vérifie qu'ils traversent l'agrégat SQL et ressortent triés par bin_start.
+    clock = Clock(1783622100.0)
+    store = MetricsStore(str(tmp_path / "m.db"), clock=clock)
+    store.record_packet_hops({-2: 56, -1: 3, 0: 12, 2: 5})
+    out = store.packet_hops_history(since=0, bin_seconds=900)
+    assert out == {
+        "bin": 900,
+        "rows": [[1783621800, -2, 56], [1783621800, -1, 3], [1783621800, 0, 12], [1783621800, 2, 5]],
+    }
+
+
 def test_packet_hops_history_since_filters(tmp_path):
     clock = Clock()
     store = MetricsStore(str(tmp_path / "m.db"), clock=clock)

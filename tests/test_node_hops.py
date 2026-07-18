@@ -48,6 +48,76 @@ def test_hop_bucket_formula(packet, expected):
     assert _hop_bucket(packet) == expected
 
 
+def _link_with_local(num):
+    """Link dont l'iface expose un nœud local `num` (source du bucket -2, cf. _local_node_id)."""
+    link = _link()
+    link._iface = type("I", (), {"getMyNodeInfo": lambda self: {"num": num}})()
+    return link
+
+
+def test_local_node_goes_to_bucket_minus_2_priority_over_hopstart():
+    """Finding live PAM289 : le nœud LOCAL émet ~92 % de ses paquets SANS hopStart (peuplé
+    seulement à la transmission mesh). Il doit aller dans un bucket DÉDIÉ -2, sinon il noie
+    l'Inconnu -1 (qui veut dire « paquet DISTANT au saut indéterminé »). -2 est PRIORITAIRE sur
+    le calcul du saut : l'émetteur tranche, pas le champ `hopStart`.
+    """
+    link = _link_with_local(0x534BBEA5)
+    link._handler_receive(packet={"fromId": "!534bbea5"})  # local SANS hopStart -> -2 (pas -1)
+    link._handler_receive(packet={"fromId": "!534bbea5", "hopStart": 3, "hopLimit": 1})  # local AVEC
+    link._handler_receive(packet={"from": 0x534BBEA5, "hopStart": 3})  # local via `from` num -> -2
+    link._handler_receive(packet={"fromId": "!aaaa0001", "hopStart": 3, "hopLimit": 1})  # distant -> 2
+    link._handler_receive(packet={"fromId": "!aaaa0002"})  # distant sans hopStart -> -1
+    assert link.drain_packet_hop_counts() == {-2: 3, 2: 1, -1: 1}
+
+
+def test_invariant_sum_hops_equals_total_packets_with_local_bucket():
+    # Σ count(hops, TOUS buckets dont -1 et -2) == total /packets : le local reste compté, juste
+    # dans son bucket. Chaque paquet attribuable incrémente exactement un bucket de chaque compteur.
+    link = _link_with_local(0x534BBEA5)
+    packets = [
+        {"fromId": "!534bbea5"},                               # local -2
+        {"fromId": "!534bbea5", "hopStart": 4, "hopLimit": 4},  # local -2 (malgré Direct apparent)
+        {"fromId": "!aaaa0001", "hopStart": 3, "hopLimit": 1},  # distant 2
+        {"fromId": "!aaaa0002"},                               # distant -1
+        {"from": 0xAAAA0003, "hopStart": 3},                   # distant 3
+    ]
+    for p in packets:
+        link._handler_receive(packet=p)
+    hop_total = sum(link.drain_packet_hop_counts().values())
+    pkt_total = sum(link.drain_packet_counts().values())
+    assert hop_total == pkt_total == len(packets)
+
+
+def test_local_id_unknown_falls_back_to_normal_calc():
+    # Tant que l'iface ne connaît pas le num local (None), aucun paquet ne matche -2 : le calcul
+    # normal s'applique (comportement d'avant l'ajout du bucket). Pas d'iface -> _local_node_id None.
+    link = _link()  # pas d'iface -> self._iface is None
+    link._handler_receive(packet={"fromId": "!534bbea5", "hopStart": 3, "hopLimit": 1})  # -> 2, pas -2
+    assert link.drain_packet_hop_counts() == {2: 1}
+
+
+def test_local_id_is_resolved_once_and_survives_bad_getmynodeinfo():
+    # _local_node_id ne lève jamais (getMyNodeInfo exotique) et mémoïse dès qu'un num est connu.
+    link = _link()
+    link._iface = type("I", (), {"getMyNodeInfo": lambda self: (_ for _ in ()).throw(RuntimeError)})()
+    link._handler_receive(packet={"fromId": "!aaaa0001"})  # getMyNodeInfo lève -> local None -> -1
+    assert link.drain_packet_hop_counts() == {-1: 1}
+    # num connu ensuite -> résolu et mémoïsé
+    link._iface = type("I", (), {"getMyNodeInfo": lambda self: {"num": 0x534BBEA5}})()
+    link._handler_receive(packet={"fromId": "!534bbea5"})
+    assert link._local_id == "!534bbea5"
+    assert link.drain_packet_hop_counts() == {-2: 1}
+
+
+def test_getmynodeinfo_without_num_leaves_local_unresolved():
+    # getMyNodeInfo sans clé `num` -> local reste None -> pas de -2.
+    link = _link()
+    link._iface = type("I", (), {"getMyNodeInfo": lambda self: {}})()
+    link._handler_receive(packet={"fromId": "!534bbea5"})  # non reconnu local -> -1 (sans hopStart)
+    assert link.drain_packet_hop_counts() == {-1: 1}
+    assert link._local_id is None
+
+
 def test_counts_by_hop_same_population_as_packets():
     # Le saut se compte sur la MÊME population que /packets (invariant Σ count(hops) == total).
     link = _link()

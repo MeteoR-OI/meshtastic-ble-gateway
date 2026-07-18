@@ -18,7 +18,7 @@ sont actifs, la cadence suit **le palier** (15/30/60 min) et non `MBG_MONITOR_IN
 | `neighbors` | worker | voisins directs (0-hop) : node_id, SNR, RSSI **radio**, last_heard |
 | `link_quality` | superviseur | **compteur de reconnexions** = signal de qualité du lien BLE |
 | `packet_counts` | worker | **paquets reçus par nœud** (série temporelle, une ligne par nœud et par flush) |
-| `packet_hops` | worker | **paquets reçus par nombre de sauts** (série temporelle, une ligne par bucket `0..7`/`-1` et par flush) |
+| `packet_hops` | worker | **paquets reçus par nombre de sauts** (série temporelle, une ligne par bucket `0..7`/`-1`/`-2` et par flush) |
 | `node_names` | worker | noms affichables (`short_name`/`long_name`) de la NodeDB — nomme `packet_counts` |
 
 `GET /metrics` renvoie `{node, link, neighbors}` : `node` (dernier relevé, avec `node_id`/`node_name`),
@@ -145,9 +145,10 @@ doit survivre aussi longtemps que les comptages qu'il nomme.
 ## Paquets reçus par nombre de sauts (`GET /hops`)
 
 Graphe **frère** de `/packets`, sur une **autre dimension** : « paquets reçus par **nombre de
-sauts** » (Direct/0-hop, 1..7 sauts, ou **Inconnu**), pour un chart en **aires empilées**. Même
-population que `/packets` (le nœud local compris) : *la somme des `count` d'une tranche sur tous les
-`hops` égale le total `/packets` de la même tranche* — invariant vérifiable. Chaque paquet est
+sauts** » (Direct/0-hop, 1..7 sauts, **Inconnu**, ou **Local**), pour un chart en **aires
+empilées**. Même population que `/packets` (le nœud local compris) : *la somme des `count` d'une
+tranche sur **tous** les `hops` (Direct, sauts, Inconnu **et** Local) égale le total `/packets` de
+la même tranche* — invariant vérifiable. Chaque paquet est
 compté dans le **même** chemin radio et **sous le même verrou** que `/packets` (un second
 `dict[hops] += 1`, sans I/O, qui ne lève jamais), vidé aux **mêmes** moments (cadence du monitoring
 **et** décrochage du lien).
@@ -162,7 +163,7 @@ curl -H "X-API-Token: $TOKEN" "$BASE/hops?since=$(( $(date +%s) - 86400 ))&bin=9
 ```json
 {
   "bin": 900,
-  "rows": [[1783622100, 0, 128], [1783622100, 2, 7], [1783622100, -1, 3]]
+  "rows": [[1783622100, -2, 56], [1783622100, 0, 128], [1783622100, 2, 7], [1783622100, -1, 3]]
 }
 ```
 
@@ -173,10 +174,11 @@ curl -H "X-API-Token: $TOKEN" "$BASE/hops?since=$(( $(date +%s) - 86400 ))&bin=9
 
 - `rows` = `[bin_start_epoch_s, hops, count]`, **triées par `bin_start` croissant**, avec
   `bin_start = floor(ts / bin) * bin`.
-- `hops` ∈ **{0..7}** (0 = Direct) ou **`-1` = Inconnu**. Jamais une autre valeur : hors [0..7] ⇒
-  rabattu sur `-1`.
+- `hops` ∈ **{0..7}** (0 = Direct), **`-1` = Inconnu** (paquet **distant** au saut indéterminé), ou
+  **`-2` = Local** (émis par la passerelle elle-même). Jamais une autre valeur : un `hops` distant
+  hors [0..7] ⇒ rabattu sur `-1`.
 - **Pas de map de noms** (contrairement à `/packets`) : la dimension est un entier fixe, pas un
-  nœud à nommer. Les libellés (Direct, « 2 sauts », Inconnu) vivent côté consommateur.
+  nœud à nommer. Les libellés (Direct, « 2 sauts », Inconnu, Local) vivent côté consommateur.
 - Une tranche **sans paquet** pour un `hops` **n'a pas de ligne** (remplissage à `0` = charge du
   consommateur).
 - `400 {"ok": false, "error": "paramètres invalides"}` si `since`/`bin` ne sont pas numériques ou
@@ -188,6 +190,10 @@ Depuis le paquet **décodé** (dict meshtastic issu de `MessageToDict`), où `ho
 sont des clés **top-level camelCase** (sœurs de `fromId`) :
 
 ```
+# 1. LOCAL prioritaire : l'émetteur tranche avant tout calcul de saut.
+si emetteur(packet) == id du nœud local -> -2   (même si le paquet porte un hopStart)
+
+# 2. sinon, calcul du saut sur le paquet distant :
 hs = packet.get("hopStart")
 si hs est un int (non bool) et hs >= 1 :
     hl = packet.get("hopLimit") si int (non bool) sinon 0   # champ omis par MessageToDict -> 0
@@ -195,24 +201,34 @@ si hs est un int (non bool) et hs >= 1 :
 sinon -> -1   # hopStart absent/0 : firmware ancien qui ne le peuple pas -> Inconnu
 ```
 
+`emetteur(packet)` = **même dérivation que le compteur par nœud** (`fromId`, repli
+`!%08x % (from & 0xffffffff)`) ; l'`id du nœud local` vient de `getMyNodeInfo()['num']` (la même
+source que `metrics.my_num`, lue dans le cache NodeDB — aucune I/O BLE), mémoïsée.
+
+> ⚠️ **Le bucket `-2` (Local) est PRIORITAIRE sur le calcul du saut.** Finding live PAM289 : le
+> nœud local émet **~92 %** de ses paquets **sans `hopStart`** (le champ n'est peuplé qu'à la
+> transmission mesh, pas sur l'écho local) — il noyait donc l'Inconnu `-1` (56/76 sur le banc). Or
+> `-1` doit signifier « paquet **distant** au saut indéterminé ». Le local part dans son propre
+> bucket `-2` : il **reste compté** (invariant préservé), simplement séparé.
+
 > ⚠️ **`hopLimit` manquant vaut `0`, pas Inconnu.** `MessageToDict` **omet les champs à zéro** : un
 > paquet multi-hop ayant **épuisé son budget de sauts** arrive avec `hopLimit == 0`, donc **clé
 > absente**. Le traiter en Inconnu aurait rangé une fraction **systématique** du trafic en `-1` sur
 > un mesh chargé. Seul `hopStart` absent/`0` (que le firmware ancien ne peuple pas) reste Inconnu.
 
 **L'agrégation est faite en SQL** (`GROUP BY b, hops` sur `idx_packet_hops_ts`), jamais en Python.
-La **cardinalité est bornée à ≤ 9 buckets** (indépendamment de la taille du mesh) ⇒ `/hops` sert
-encore **moins de lignes** que `/packets` et ne grossit pas avec le nombre de nœuds.
+La **cardinalité est bornée à ≤ 10 buckets** (0..7, `-1`, `-2` ; indépendamment de la taille du
+mesh) ⇒ `/hops` sert **moins de lignes** que `/packets` et ne grossit pas avec le nombre de nœuds.
 
-**Perf mesurée** (base saturée à 35 j × 288 tranches/jour × 9 buckets = 90 720 lignes, `.db`
-2,6 Mo) :
+**Perf mesurée** (base saturée à 35 j × 288 tranches/jour × 10 buckets = 100 800 lignes, `.db`
+2,9 Mo) :
 
 | Environnement | `day` (24 h, `bin=900`) | `week` (7 j, `bin=1800`) | `month` (30 j, `bin=10800`) |
 |---|---|---|---|
-| Dev (macOS, x86_64) | **1,6 ms** | 7,4 ms | **25 ms** |
+| Dev (macOS, x86_64) | **1,7 ms** | 8,4 ms | **27,7 ms** |
 | Raspberry Pi (ARM) | *à confirmer en hw-test* | — | *à confirmer* |
 
-Cibles Pi : `day` **< 300 ms**, `month` **< 1 s**. La cardinalité fixe (≤ 9 buckets, ~⅓ des lignes
+Cibles Pi : `day` **< 300 ms**, `month` **< 1 s**. La cardinalité fixe (≤ 10 buckets, ~½ des lignes
 de `/packets` à 20 nœuds) garde `/hops` **sous** `/packets` sur ARM — dont le `month` à 20 nœuds
 est déjà mesuré à ~1 s. Les chiffres ARM seront relevés sur banc (voir le `done` du chantier).
 

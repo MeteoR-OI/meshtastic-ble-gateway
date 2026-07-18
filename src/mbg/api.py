@@ -195,7 +195,7 @@ def _handle_get(route: str, query: str, metrics, info, traceroute) -> Tuple[int,
         return 200, metrics.packet_history(since, bin_seconds)
     # /hops : histogramme « paquets par nombre de sauts, par tranche » (contrat A). Frère strict de
     # /packets — mêmes bornes de bin, même 404 monitoring, mêmes 400. Authentifié comme TOUTES les
-    # routes (_authorized tourne avant ce dispatch). Agrégation faite en SQL (≤ 9 buckets).
+    # routes (_authorized tourne avant ce dispatch). Agrégation faite en SQL (≤ 10 buckets).
     if route == "/hops":
         if metrics is None:  # miroir exact du 404 de /metrics et /packets
             return 404, {"ok": False, "error": "monitoring désactivé"}

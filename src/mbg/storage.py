@@ -44,7 +44,7 @@ _EXPORT_TABLES: Tuple[Tuple[str, str], ...] = (
 # Plafond DUR de rétention de `packet_counts` ET `packet_hops`, INDÉPENDANT de `retention_days`
 # (qui vaut 0 par défaut = « pas de purge », cf. config.py). Une série temporelle qui ne se purge
 # jamais est une fuite lente : ~5 800 lignes/jour (288 flushes × ~20 nœuds) pour packet_counts,
-# ~2 600 lignes/jour (288 × ≤ 9 buckets) pour packet_hops ⇒ ~200 k / ~90 k lignes à l'équilibre.
+# ~2 600 lignes/jour (288 × ≤ 10 buckets) pour packet_hops ⇒ ~200 k / ~90 k lignes à l'équilibre.
 # 35 j = fenêtre du chart « mois » + marge. Appliqué par `prune_packets` (voir sa docstring pour
 # la raison de la séparation d'avec `prune`), inconditionnellement, à chaque cycle de maintenance.
 PACKET_RETENTION_SECONDS = 35 * 86400
@@ -280,7 +280,8 @@ class MetricsStore:
         """Écrit un lot de comptages par saut (une ligne par bucket, `ts` = instant du flush).
 
         Calqué sur `record_packets` : `INSERT`, jamais upsert (SÉRIE TEMPORELLE), re-binning à la
-        lecture, lot vide = aucune écriture. `hops` ∈ {0..7} ou `-1` (Inconnu) — cf. `_hop_bucket`.
+        lecture, lot vide = aucune écriture. `hops` ∈ {0..7}, `-1` (Inconnu, distant au saut
+        indéterminé) ou `-2` (LOCAL) — cf. `node._hop_bucket` et `node._count_packet`.
         """
         if not counts:
             return
@@ -298,7 +299,7 @@ class MetricsStore:
 
         Frère strict de `packet_history`, MAIS **sans résolution de noms** : la dimension est un
         entier fixe (`hops`), pas un nœud à nommer. Agrégation EN SQL (jamais en Python), adossée
-        à `idx_packet_hops_ts`. Cardinalité bornée (≤ 9 buckets) ⇒ encore moins de lignes que
+        à `idx_packet_hops_ts`. Cardinalité bornée (≤ 10 buckets) ⇒ encore moins de lignes que
         `/packets`. Une tranche sans paquet pour un `hops` n'a PAS de ligne (remplissage à 0 = charge
         du consommateur). `rows` triées par `bin_start` croissant.
         """

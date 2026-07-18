@@ -128,7 +128,8 @@ class MeshtasticNodeLink:
         self._pending_acks = {}  # packet_id -> (label, timer) pour want_ack
         self._ack_lock = threading.Lock()
         self._packet_counts = {}  # node_id -> nb de paquets reçus depuis le dernier flush
-        self._packet_hop_counts = {}  # nb de sauts (0..7 ou -1) -> nb de paquets (histogramme /hops)
+        self._packet_hop_counts = {}  # nb de sauts (0..7, -1 Inconnu, -2 LOCAL) -> nb de paquets (/hops)
+        self._local_id = None  # id !hex du nœud LOCAL, mis en cache (bucket -2) — cf. _local_node_id
         self._packet_lock = threading.Lock()  # le comptage (par nœud ET par saut) vit dans le thread pubsub
         self._traceroute = None  # TracerouteCoordinator (attaché par la session si activé)
 
@@ -272,6 +273,11 @@ class MeshtasticNodeLink:
         voisinage compte N voisins. C'est voulu — « voisins » répond à *qui est autour de moi*,
         l'histogramme à *qui émet*. **Ne pas « corriger » cette différence** : ce n'est pas un
         bug, et la légende cliquable du chart permet de retirer un nœud local bavard.
+
+        Côté **/hops**, le local va dans un bucket DÉDIÉ `-2` (voir plus bas) : ses paquets locaux
+        n'ont ~jamais de `hopStart` (le champ n'est peuplé qu'à la transmission mesh, pas sur l'écho
+        local) → sans ce bucket ils noieraient l'Inconnu `-1`, qui doit rester « paquet DISTANT au
+        saut indéterminé » (finding live PAM289 : ~92 % du local sans `hopStart`).
         """
         try:
             node_id = packet.get("fromId")
@@ -284,11 +290,31 @@ class MeshtasticNodeLink:
             return
         # Saut du paquet (histogramme /hops), sur la MÊME population que /packets — d'où l'incrément
         # sous le même verrou, dans le même bloc : un paquet compté par nœud l'est aussi par saut
-        # (invariant Σ count(hops) == total /packets sur une tranche). Calculé hors verrou (pur).
-        hops = _hop_bucket(packet)
+        # (invariant Σ count(hops, tous buckets dont -1 ET -2) == total /packets). Calculé hors verrou.
+        # Le bucket LOCAL -2 est PRIORITAIRE sur le calcul du saut : un paquet local avec un hopStart
+        # exotique reste -2 (c'est l'émetteur qui tranche, pas le champ).
+        hops = -2 if node_id == self._local_node_id() else _hop_bucket(packet)
         with self._packet_lock:
             self._packet_counts[node_id] = self._packet_counts.get(node_id, 0) + 1
             self._packet_hop_counts[hops] = self._packet_hop_counts.get(hops, 0) + 1
+
+    def _local_node_id(self):
+        """Id `!hex` du nœud LOCAL (passerelle), mis en cache — clé du bucket `-2` de `/hops`.
+
+        Source = `getMyNodeInfo()['num']` (la MÊME que `metrics.py` `my_num`, pas une réinvention),
+        formaté comme le repli du compteur par nœud (`!%08x`) → comparable au `node_id` dérivé.
+        `getMyNodeInfo()` est une lecture du cache NodeDB (dict), **aucune I/O BLE** — sûr dans le
+        thread pubsub. Résolu une seule fois (dès que l'iface le connaît), puis mémoïsé ; `None` tant
+        qu'inconnu (aucun paquet ne matche → comportement d'avant l'ajout du bucket). Ne lève jamais.
+        """
+        if self._local_id is None and self._iface is not None:
+            try:
+                num = (self._iface.getMyNodeInfo() or {}).get("num")
+            except Exception:  # noqa: BLE001 — jamais d'exception dans le chemin radio
+                num = None
+            if num is not None:
+                self._local_id = "!%08x" % (num & 0xFFFFFFFF)
+        return self._local_id
 
     def drain_packet_counts(self) -> dict:
         """Vide le compteur et renvoie `{node_id: count}` (RAM seule, aucune I/O BLE).
