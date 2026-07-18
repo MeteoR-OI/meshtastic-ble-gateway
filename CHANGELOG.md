@@ -4,6 +4,38 @@ Toutes les évolutions notables. Format inspiré de [Keep a Changelog](https://k
 versionnage [SemVer](https://semver.org/lang/fr/). Notes et artefacts détaillés :
 [Releases GitHub](https://github.com/MeteoR-OI/meshtastic-ble-gateway/releases).
 
+## [0.9.3] — 2026-07-18
+### Ajouté
+- **Histogramme « paquets reçus par nombre de sauts, par tranche »** : nouvel endpoint
+  **`GET /hops`** (`?since=<epoch_s>&bin=<sec>`, `bin` ∈ [60, 86400], défaut 300, réfléchi dans la
+  réponse), **frère** de `/packets` sur la dimension « saut ». Renvoie `{bin, rows}` — `rows` =
+  `[bin_start, hops, count]` triées par `bin_start`, une tranche sans paquet pour un `hops` n'ayant
+  **pas** de ligne (remplissage à `0` = charge du consommateur). `hops` ∈ **{0..7}** (0 = Direct),
+  **`-1` = Inconnu** (paquet **distant** au saut indéterminé) ou **`-2` = Local** (émis par la
+  passerelle) ; **pas de map de noms** (la dimension est un entier fixe). **Même
+  population que `/packets`** (nœud local compris) : la somme des `count` d'une tranche sur tous les
+  `hops` égale le total `/packets` de la tranche (invariant). **Nécessite le monitoring** (sinon
+  `404 monitoring désactivé`, comme `/metrics` et `/packets`) ; **authentifié** comme toutes les
+  routes. Chaque paquet entrant est compté dans le **même** chemin radio et **sous le même verrou**
+  que `/packets` (un second `dict[hops] += 1`, sans I/O, sans jamais lever), vidé aux mêmes moments
+  (cadence du monitoring **et** décrochage du lien). Agrégation **en SQL** (`GROUP BY b, hops` sur
+  `idx_packet_hops_ts`), jamais en Python ; cardinalité **bornée à ≤ 10 buckets** (indépendante de la
+  taille du mesh). Nouvelle table `packet_hops` (série temporelle), partageant le **plafond dur de
+  rétention 35 j** de `packet_counts` (même `prune_packets`, purge inconditionnelle même quand
+  `MBG_RETENTION_DAYS=0`) et exportée en CSV. Cf.
+  [monitoring.md](docs/monitoring.md#paquets-reçus-par-nombre-de-sauts-get-hops).
+- **Calcul du saut** : le bucket **`-2` (Local) est prioritaire** — si l'émetteur est le nœud
+  passerelle (même dérivation `fromId`/`from` que le compteur par nœud ; id local lu du cache
+  NodeDB via `getMyNodeInfo`, sans I/O BLE), le paquet va en `-2` **avant** tout calcul de saut
+  (finding live PAM289 : ~92 % des paquets locaux n'ont pas de `hopStart`, ils noyaient l'Inconnu
+  `-1` qui doit désigner un paquet **distant**). Sinon `hopStart`/`hopLimit` sont des clés
+  **top-level camelCase** du dict décodé (sœurs de `fromId`) : `hops = hopStart − hopLimit` si
+  `hopStart` est un int ≥ 1 ; **un `hopLimit` manquant vaut `0`** (et non Inconnu) car
+  `MessageToDict` omet les champs à zéro — un paquet multi-hop ayant épuisé son budget arrive avec
+  `hopLimit == 0` (clé absente). Seul `hopStart` absent/`0`/non-int (firmware ancien) → bucket
+  **`-1` (Inconnu)**, tout comme un `hops` calculé hors [0..7]. Ne lève **jamais** (chemin radio) ;
+  l'invariant Σ count(hops, tous buckets dont `-1` et `-2`) == total `/packets` reste vrai.
+
 ## [0.9.2] — 2026-07-16
 ### Ajouté
 - **Histogramme « paquets reçus par nœud, par tranche »** : nouvel endpoint **`GET /packets`**

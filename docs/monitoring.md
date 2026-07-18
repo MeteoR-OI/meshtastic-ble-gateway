@@ -18,6 +18,7 @@ sont actifs, la cadence suit **le palier** (15/30/60 min) et non `MBG_MONITOR_IN
 | `neighbors` | worker | voisins directs (0-hop) : node_id, SNR, RSSI **radio**, last_heard |
 | `link_quality` | superviseur | **compteur de reconnexions** = signal de qualité du lien BLE |
 | `packet_counts` | worker | **paquets reçus par nœud** (série temporelle, une ligne par nœud et par flush) |
+| `packet_hops` | worker | **paquets reçus par nombre de sauts** (série temporelle, une ligne par bucket `0..7`/`-1`/`-2` et par flush) |
 | `node_names` | worker | noms affichables (`short_name`/`long_name`) de la NodeDB — nomme `packet_counts` |
 
 `GET /metrics` renvoie `{node, link, neighbors}` : `node` (dernier relevé, avec `node_id`/`node_name`),
@@ -122,15 +123,15 @@ recours connu est d'abaisser le Top-N ou de le porter dans le SQL.
 
 ### Rétention : plafond dur de 35 jours
 
-`packet_counts` est la seule table à **plafond de rétention propre : 35 jours**, appliqué
-**inconditionnellement**, même quand `MBG_RETENTION_DAYS=0` (le défaut, qui signifie « ne rien
-purger »). C'est délibéré : une série temporelle qui ne se purge jamais est une fuite lente
-(~5 800 lignes/jour), alors que 35 j couvrent la fenêtre du chart « mois » avec de la marge. Les
-**autres** tables restent gouvernées par `MBG_RETENTION_DAYS` seul — une station qui a choisi `0`
-garde intégralement son historique `node_metrics`/`link_quality`/`traceroute`. Si
-`MBG_RETENTION_DAYS` est fixé **en deçà** de 35 j, `packet_counts` suit cette valeur, plus courte :
-35 j est un **plafond**, pas un plancher. La purge tourne dans le thread de maintenance, à la
-cadence `MBG_DUMP_INTERVAL` (défaut 1 h).
+`packet_counts` **et `packet_hops`** sont les tables à **plafond de rétention propre : 35 jours**,
+appliqué **inconditionnellement**, même quand `MBG_RETENTION_DAYS=0` (le défaut, qui signifie « ne
+rien purger »). C'est délibéré : une série temporelle qui ne se purge jamais est une fuite lente
+(~5 800 lignes/jour pour `packet_counts`, ~2 600 pour `packet_hops`), alors que 35 j couvrent la
+fenêtre du chart « mois » avec de la marge. Les **autres** tables restent gouvernées par
+`MBG_RETENTION_DAYS` seul — une station qui a choisi `0` garde intégralement son historique
+`node_metrics`/`link_quality`/`traceroute`. Si `MBG_RETENTION_DAYS` est fixé **en deçà** de 35 j,
+`packet_counts`/`packet_hops` suivent cette valeur, plus courte : 35 j est un **plafond**, pas un
+plancher. La purge tourne dans le thread de maintenance, à la cadence `MBG_DUMP_INTERVAL` (défaut 1 h).
 
 `node_names` n'est **jamais** purgée (une ligne par nœud, bornée par la taille du mesh) : un nom
 doit survivre aussi longtemps que les comptages qu'il nomme.
@@ -140,3 +141,96 @@ doit survivre aussi longtemps que les comptages qu'il nomme.
 > (`os._exit`/SIGKILL), qui est le socle de la résilience — voir [resilience.md](resilience.md).
 > Le décrochage BLE *ordinaire*, lui, est couvert : la session vide les compteurs avant de rendre
 > la main.
+
+## Paquets reçus par nombre de sauts (`GET /hops`)
+
+Graphe **frère** de `/packets`, sur une **autre dimension** : « paquets reçus par **nombre de
+sauts** » (Direct/0-hop, 1..7 sauts, **Inconnu**, ou **Local**), pour un chart en **aires
+empilées**. Même population que `/packets` (le nœud local compris) : *la somme des `count` d'une
+tranche sur **tous** les `hops` (Direct, sauts, Inconnu **et** Local) égale le total `/packets` de
+la même tranche* — invariant vérifiable. Chaque paquet est
+compté dans le **même** chemin radio et **sous le même verrou** que `/packets` (un second
+`dict[hops] += 1`, sans I/O, qui ne lève jamais), vidé aux **mêmes** moments (cadence du monitoring
+**et** décrochage du lien).
+
+Nécessite le monitoring (`MBG_MONITOR_INTERVAL > 0`) — sinon `404 {"ok": false, "error":
+"monitoring désactivé"}`, comme `/metrics` et `/packets`. Aucune variable dédiée, aucune option.
+
+```bash
+curl -H "X-API-Token: $TOKEN" "$BASE/hops?since=$(( $(date +%s) - 86400 ))&bin=900"
+```
+
+```json
+{
+  "bin": 900,
+  "rows": [[1783622100, -2, 56], [1783622100, 0, 128], [1783622100, 2, 7], [1783622100, -1, 3]]
+}
+```
+
+| Paramètre | Défaut | Rôle |
+|---|---|---|
+| `since` | `0` | epoch (s) : ne renvoie que les tranches à partir de cet instant |
+| `bin` | `300` | largeur de tranche (s), bornée **[60, 86400]** ; **réfléchie** dans la réponse |
+
+- `rows` = `[bin_start_epoch_s, hops, count]`, **triées par `bin_start` croissant**, avec
+  `bin_start = floor(ts / bin) * bin`.
+- `hops` ∈ **{0..7}** (0 = Direct), **`-1` = Inconnu** (paquet **distant** au saut indéterminé), ou
+  **`-2` = Local** (émis par la passerelle elle-même). Jamais une autre valeur : un `hops` distant
+  hors [0..7] ⇒ rabattu sur `-1`.
+- **Pas de map de noms** (contrairement à `/packets`) : la dimension est un entier fixe, pas un
+  nœud à nommer. Les libellés (Direct, « 2 sauts », Inconnu, Local) vivent côté consommateur.
+- Une tranche **sans paquet** pour un `hops` **n'a pas de ligne** (remplissage à `0` = charge du
+  consommateur).
+- `400 {"ok": false, "error": "paramètres invalides"}` si `since`/`bin` ne sont pas numériques ou
+  si `bin` sort des bornes.
+
+### Calcul du saut
+
+Depuis le paquet **décodé** (dict meshtastic issu de `MessageToDict`), où `hopStart`/`hopLimit`
+sont des clés **top-level camelCase** (sœurs de `fromId`) :
+
+```
+# 1. LOCAL prioritaire : l'émetteur tranche avant tout calcul de saut.
+si emetteur(packet) == id du nœud local -> -2   (même si le paquet porte un hopStart)
+
+# 2. sinon, calcul du saut sur le paquet distant :
+hs = packet.get("hopStart")
+si hs est un int (non bool) et hs >= 1 :
+    hl = packet.get("hopLimit") si int (non bool) sinon 0   # champ omis par MessageToDict -> 0
+    hops = hs - hl ;  si 0 <= hops <= 7 -> hops ,  sinon -> -1
+sinon -> -1   # hopStart absent/0 : firmware ancien qui ne le peuple pas -> Inconnu
+```
+
+`emetteur(packet)` = **même dérivation que le compteur par nœud** (`fromId`, repli
+`!%08x % (from & 0xffffffff)`) ; l'`id du nœud local` vient de `getMyNodeInfo()['num']` (la même
+source que `metrics.my_num`, lue dans le cache NodeDB — aucune I/O BLE), mémoïsée.
+
+> ⚠️ **Le bucket `-2` (Local) est PRIORITAIRE sur le calcul du saut.** Finding live PAM289 : le
+> nœud local émet **~92 %** de ses paquets **sans `hopStart`** (le champ n'est peuplé qu'à la
+> transmission mesh, pas sur l'écho local) — il noyait donc l'Inconnu `-1` (56/76 sur le banc). Or
+> `-1` doit signifier « paquet **distant** au saut indéterminé ». Le local part dans son propre
+> bucket `-2` : il **reste compté** (invariant préservé), simplement séparé.
+
+> ⚠️ **`hopLimit` manquant vaut `0`, pas Inconnu.** `MessageToDict` **omet les champs à zéro** : un
+> paquet multi-hop ayant **épuisé son budget de sauts** arrive avec `hopLimit == 0`, donc **clé
+> absente**. Le traiter en Inconnu aurait rangé une fraction **systématique** du trafic en `-1` sur
+> un mesh chargé. Seul `hopStart` absent/`0` (que le firmware ancien ne peuple pas) reste Inconnu.
+
+**L'agrégation est faite en SQL** (`GROUP BY b, hops` sur `idx_packet_hops_ts`), jamais en Python.
+La **cardinalité est bornée à ≤ 10 buckets** (0..7, `-1`, `-2` ; indépendamment de la taille du
+mesh) ⇒ `/hops` sert **moins de lignes** que `/packets` et ne grossit pas avec le nombre de nœuds.
+
+**Perf mesurée** (base saturée à 35 j × 288 tranches/jour × 10 buckets = 100 800 lignes, `.db`
+2,9 Mo) :
+
+| Environnement | `day` (24 h, `bin=900`) | `week` (7 j, `bin=1800`) | `month` (30 j, `bin=10800`) |
+|---|---|---|---|
+| Dev (macOS, x86_64) | **1,7 ms** | 8,4 ms | **27,7 ms** |
+| Raspberry Pi (ARM) | *à confirmer en hw-test* | — | *à confirmer* |
+
+Cibles Pi : `day` **< 300 ms**, `month` **< 1 s**. La cardinalité fixe (≤ 10 buckets, ~½ des lignes
+de `/packets` à 20 nœuds) garde `/hops` **sous** `/packets` sur ARM — dont le `month` à 20 nœuds
+est déjà mesuré à ~1 s. Les chiffres ARM seront relevés sur banc (voir le `done` du chantier).
+
+**Rétention** : `packet_hops` partage le **plafond dur de 35 jours** de `packet_counts` (même
+`prune_packets`, purge inconditionnelle) — voir la section rétention ci-dessus.

@@ -95,9 +95,11 @@ def _worker_body(
             """Vide les compteurs de paquets vers la base (RAM + INSERT ; aucune I/O BLE).
 
             Passé aussi à la session, qui l'appelle au décrochage — sans quoi une session plus
-            courte que `monitor_interval` perdrait tous ses comptages (cf. session).
+            courte que `monitor_interval` perdrait tous ses comptages (cf. session). Les deux
+            compteurs (par nœud ET par saut) se vident ensemble, sur la même population.
             """
             store.record_packets(link.drain_packet_counts())
+            store.record_packet_hops(link.drain_packet_hop_counts())
 
         def monitor(link):
             if config.force_telemetry:

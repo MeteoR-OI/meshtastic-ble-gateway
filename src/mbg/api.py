@@ -6,7 +6,7 @@
 100 %. `serve` est l'adaptateur socket/thread (frontière OS, testé en intégration).
 Auth par en-tête `X-API-Token`. Routes : POST /send/text, /send/telemetry,
 /send/position, /request/position, /admin ; GET /health, /info, /metrics, /history,
-/packets (histogramme paquets par nœud). Les
+/packets (histogramme paquets par nœud), /hops (histogramme paquets par nombre de sauts). Les
 commandes POST sont relayées au worker via `dispatch` (déjà borné en
 timeout) qui renvoie `{"ok": bool, ...}`.
 """
@@ -193,6 +193,20 @@ def _handle_get(route: str, query: str, metrics, info, traceroute) -> Tuple[int,
         if not (storage.PACKET_BIN_MIN <= bin_seconds <= storage.PACKET_BIN_MAX):
             return 400, {"ok": False, "error": "paramètres invalides"}
         return 200, metrics.packet_history(since, bin_seconds)
+    # /hops : histogramme « paquets par nombre de sauts, par tranche » (contrat A). Frère strict de
+    # /packets — mêmes bornes de bin, même 404 monitoring, mêmes 400. Authentifié comme TOUTES les
+    # routes (_authorized tourne avant ce dispatch). Agrégation faite en SQL (≤ 10 buckets).
+    if route == "/hops":
+        if metrics is None:  # miroir exact du 404 de /metrics et /packets
+            return 404, {"ok": False, "error": "monitoring désactivé"}
+        try:
+            since = float(params.get("since", ["0"])[0])
+            bin_seconds = int(params.get("bin", [str(storage.PACKET_BIN_DEFAULT)])[0])
+        except ValueError:
+            return 400, {"ok": False, "error": "paramètres invalides"}
+        if not (storage.PACKET_BIN_MIN <= bin_seconds <= storage.PACKET_BIN_MAX):
+            return 400, {"ok": False, "error": "paramètres invalides"}
+        return 200, metrics.packet_hops_history(since, bin_seconds)
     if route in ("/metrics", "/history"):
         if metrics is None:
             return 404, {"ok": False, "error": "monitoring désactivé"}
