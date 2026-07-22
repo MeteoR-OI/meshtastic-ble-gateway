@@ -104,6 +104,7 @@ Déploiement RPi (systemd), y compris le cas **Buster** : **[docs/installation.m
 | **V0.9** | Traceroute : endpoint `POST /traceroute` + planificateur automatique (opt-in) ; réconciliation BLE au restart | ✅ |
 | **V0.9.2** | Histogramme « paquets reçus par nœud » : `GET /packets` (agrégation SQL, rétention 35 j) | ✅ |
 | **V0.9.3** | Histogramme « paquets reçus par nombre de sauts » : `GET /hops` (Direct/1..7/Inconnu, aires empilées côté skin) | ✅ |
+| **V0.9.4** | Identité syslog stable : le service journalise sous `app_name:meteor-mbg` (`SyslogIdentifier`) | ✅ |
 | **V0.10** | Transports alternatifs (USB-série / WiFi-TCP) | ⏳ |
 
 Historique détaillé : [CHANGELOG.md](CHANGELOG.md).
