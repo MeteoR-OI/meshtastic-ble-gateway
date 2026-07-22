@@ -7,6 +7,11 @@ After=bluetooth.target network-online.target
 Wants=bluetooth.target network-online.target
 
 [Service]
+# Identité syslog : le service journalise sous le tag `meteor-mbg` (au lieu du basename
+# générique `python` de l'interpréteur) → `app_name:meteor-mbg` dans VictoriaLogs, distinct
+# des autres services Python de la station. Source unique d'identité : ne PAS ajouter en plus
+# un openlog()/SysLogHandler côté code.
+SyslogIdentifier=meteor-mbg
 # Type=notify + WatchdogSec : l'app envoie WATCHDOG=1 à chaque cycle sain ; si
 # systemd cesse de les recevoir (gel total), il relance le service. Filet ultime
 # en plus de la reconnexion interne (sonde de vivacité + backoff).

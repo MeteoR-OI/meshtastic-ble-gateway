@@ -39,7 +39,8 @@ pas publier tout seul (pas de WiFi). Ce pont, hébergé sur un Raspberry Pi, se 
 - **Proxy BLE → MQTT** : forward du Client Proxy `/e/` **opaque** (aucun crypto côté passerelle) —
   voir [architecture](docs/architecture.md).
 - **Résilience** : isolation de process (superviseur + worker jetable SIGKILLable), watchdog
-  systemd, disconnect bluez après gel — voir [resilience](docs/resilience.md).
+  systemd, disconnect bluez après gel — voir [resilience](docs/resilience.md). Le service
+  journalise sous le tag syslog `meteor-mbg` (`app_name:meteor-mbg`, identité stable des logs).
 - **API de contrôle** (opt-in) : texte, télémétrie, position, **requêtes vers un node distant**,
   admin — voir [api](docs/api.md).
 - **Traceroute** : endpoint `POST /traceroute` (async ou bloquant) + **planificateur automatique**
@@ -103,6 +104,7 @@ Déploiement RPi (systemd), y compris le cas **Buster** : **[docs/installation.m
 | **V0.9** | Traceroute : endpoint `POST /traceroute` + planificateur automatique (opt-in) ; réconciliation BLE au restart | ✅ |
 | **V0.9.2** | Histogramme « paquets reçus par nœud » : `GET /packets` (agrégation SQL, rétention 35 j) | ✅ |
 | **V0.9.3** | Histogramme « paquets reçus par nombre de sauts » : `GET /hops` (Direct/1..7/Inconnu, aires empilées côté skin) | ✅ |
+| **V0.9.4** | Identité syslog stable : le service journalise sous `app_name:meteor-mbg` (`SyslogIdentifier`) | ✅ |
 | **V0.10** | Transports alternatifs (USB-série / WiFi-TCP) | ⏳ |
 
 Historique détaillé : [CHANGELOG.md](CHANGELOG.md).

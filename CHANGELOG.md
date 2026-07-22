@@ -4,6 +4,14 @@ Toutes les évolutions notables. Format inspiré de [Keep a Changelog](https://k
 versionnage [SemVer](https://semver.org/lang/fr/). Notes et artefacts détaillés :
 [Releases GitHub](https://github.com/MeteoR-OI/meshtastic-ble-gateway/releases).
 
+## [0.9.4] — 2026-07-22
+### Modifié
+- **Identité syslog stable** : l'unité `deploy/mbg.service` pose `SyslogIdentifier=meteor-mbg`, si
+  bien que le service journalise sous **`app_name:meteor-mbg`** (et non le générique `python` du
+  basename de l'interpréteur) — distinct des autres services Python de la station dans un agrégateur
+  type VictoriaLogs. **Source d'identité unique** : aucun `openlog()`/`SysLogHandler` ajouté côté
+  code. Gardé par `tests/test_deploy_service.py`. Chantier inter-repos `log-identity`.
+
 ## [0.9.3] — 2026-07-18
 ### Ajouté
 - **Histogramme « paquets reçus par nombre de sauts, par tranche »** : nouvel endpoint
