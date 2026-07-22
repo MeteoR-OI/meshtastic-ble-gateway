@@ -39,7 +39,8 @@ pas publier tout seul (pas de WiFi). Ce pont, hébergé sur un Raspberry Pi, se 
 - **Proxy BLE → MQTT** : forward du Client Proxy `/e/` **opaque** (aucun crypto côté passerelle) —
   voir [architecture](docs/architecture.md).
 - **Résilience** : isolation de process (superviseur + worker jetable SIGKILLable), watchdog
-  systemd, disconnect bluez après gel — voir [resilience](docs/resilience.md).
+  systemd, disconnect bluez après gel — voir [resilience](docs/resilience.md). Le service
+  journalise sous le tag syslog `meteor-mbg` (`app_name:meteor-mbg`, identité stable des logs).
 - **API de contrôle** (opt-in) : texte, télémétrie, position, **requêtes vers un node distant**,
   admin — voir [api](docs/api.md).
 - **Traceroute** : endpoint `POST /traceroute` (async ou bloquant) + **planificateur automatique**

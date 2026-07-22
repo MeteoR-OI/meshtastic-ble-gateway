@@ -340,3 +340,9 @@ Les arguments CLI ne servent qu'en usage manuel/PoC et priment s'ils sont fourni
   citer Claude en prose (`Assisté par Claude Code (Anthropic).`).
 - Ne pas modifier la config d'un node déjà en place — la **vérifier** en read-only.
 - Secrets (creds MQTT) : uniquement dans le fichier systemd sur le RPi, jamais dans le repo.
+- **Identité syslog = `SyslogIdentifier=meteor-mbg`** dans `deploy/mbg.service` (chantier
+  log-identity) → le service journalise sous `app_name:meteor-mbg`, jamais le générique `python`.
+  **Source d'identité UNIQUE** : ne PAS ajouter d'`openlog()`/`SysLogHandler` côté code (deux
+  vérités divergentes). Gardé par `tests/test_deploy_service.py` (parse l'unité, refuse un tag
+  générique/absent). Valeur figée par le registre inter-repos ; l'unité générée par l'installer
+  (`MeteoR-Pi-Installer`) porte le même tag de son côté (hors de ce repo).

@@ -139,6 +139,10 @@ journalctl -u mbg -f                          # suivre les [uplink]
   **MAC** ; sur macOS = UUID/nom (le CLI accepte les deux via `--ble`).
 - Créer le répertoire des métriques si le monitoring est activé :
   `sudo install -d -o mbg -g mbg /var/lib/mbg`.
+- **Identité des logs** : l'unité pose `SyslogIdentifier=meteor-mbg`, donc le service journalise
+  sous le tag `meteor-mbg` (et non le générique `python` de l'interpréteur). Il se retrouve
+  ainsi sous `app_name:meteor-mbg` dans un agrégateur type VictoriaLogs, distinct des autres
+  services Python de la station.
 
 ### Gestion du service au quotidien
 
